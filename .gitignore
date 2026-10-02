@@ -1,1 +1,11 @@
 plan.pdf
+# macOS
+.DS_Store
+
+# SwiftPM / Xcode
+.build/
+.swiftpm/
+/Packages
+xcuserdata/
+DerivedData/
+*.xcodeproj/project.xcworkspace/xcuserdata/

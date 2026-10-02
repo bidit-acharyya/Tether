@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin Xcode so a runner image update can't silently change the Swift version.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.3"
+
+      - name: Toolchain versions
+        run: |
+          swift --version
+          sqlite3 --version
+
+      - name: Lint
+        run: swift format lint --strict -r Sources Tests Package.swift
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
