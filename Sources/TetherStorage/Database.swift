@@ -8,6 +8,7 @@ public actor Database {
     /// The live connection, or `nil` once `close()` has run.
     nonisolated(unsafe) private var connection: OpaquePointer?
     private var statements: [String: Statement] = [:]
+    private var inTransaction = false
 
     public init(path: String) throws {
         var connection: OpaquePointer?
@@ -62,6 +63,24 @@ public actor Database {
         defer { statement.reset() }
         try statement.bind(values)
         return try statement.rows()
+    }
+
+    /// Runs `body` inside `BEGIN IMMEDIATE ... COMMIT`, rolling back if it throws.
+    public func transaction<T: Sendable>(
+        _ body: @Sendable (isolated Database) throws -> T
+    ) throws -> T {
+        precondition(!inTransaction, "Nested transactions aren't supported")
+        try execute("BEGIN IMMEDIATE")
+        inTransaction = true
+        defer { inTransaction = false }
+        do {
+            let result = try body(self)
+            try execute("COMMIT")
+            return result
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
     }
 
     func pragma(_ name: String) throws -> SQLValue? {

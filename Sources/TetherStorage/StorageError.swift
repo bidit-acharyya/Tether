@@ -9,6 +9,8 @@ public enum StorageError: Error, Equatable {
     case parameterCount(expected: Int, actual: Int)
     case noSuchColumn(String)
     case typeMismatch(column: String)
+    case schemaTooNew(found: Int, supported: Int)
+    case corrupt(String)
 }
 
 extension StorageError {
