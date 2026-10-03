@@ -8,9 +8,9 @@ import Testing
     @Test func fileDatabaseUsesWALFullSyncAndForeignKeys() async throws {
         try await withTemporaryDirectory { directory in
             let db = try Database(path: directory.appendingPathComponent("test.sqlite").path)
-            #expect(try await db.pragma("journal_mode") == "wal")
-            #expect(try await db.pragma("synchronous") == "2")  // 2 means FULL.
-            #expect(try await db.pragma("foreign_keys") == "1")
+            #expect(try await db.pragma("journal_mode") == .text("wal"))
+            #expect(try await db.pragma("synchronous") == .int(2))  // 2 means FULL.
+            #expect(try await db.pragma("foreign_keys") == .int(1))
         }
     }
 
@@ -19,15 +19,15 @@ import Testing
             let path = directory.appendingPathComponent("test.sqlite").path
             try await Database(path: path).close()
             let reopened = try Database(path: path)
-            #expect(try await reopened.pragma("journal_mode") == "wal")
+            #expect(try await reopened.pragma("journal_mode") == .text("wal"))
         }
     }
 
     @Test func inMemoryDatabaseOpens() async throws {
         let db = try Database.inMemory()
         // In-memory databases can't use WAL; SQLite keeps them in "memory" journal mode.
-        #expect(try await db.pragma("journal_mode") == "memory")
-        #expect(try await db.pragma("foreign_keys") == "1")
+        #expect(try await db.pragma("journal_mode") == .text("memory"))
+        #expect(try await db.pragma("foreign_keys") == .int(1))
     }
 
     @Test func openingInMissingDirectoryThrows() async throws {

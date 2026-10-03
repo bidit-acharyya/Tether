@@ -5,6 +5,10 @@ public enum StorageError: Error, Equatable {
     case sqlite(code: Int32, message: String)
     case closed
     case unexpectedJournalMode(String)
+    case emptyStatement
+    case parameterCount(expected: Int, actual: Int)
+    case noSuchColumn(String)
+    case typeMismatch(column: String)
 }
 
 extension StorageError {

@@ -7,6 +7,7 @@ import SQLite3
 public actor Database {
     /// The live connection, or `nil` once `close()` has run.
     nonisolated(unsafe) private var connection: OpaquePointer?
+    private var statements: [String: Statement] = [:]
 
     public init(path: String) throws {
         var connection: OpaquePointer?
@@ -34,24 +35,46 @@ public actor Database {
     }
 
     deinit {
-        sqlite3_close_v2(connection)  // A nil connection is a harmless no-op.
+        // close_v2 defers the close until any cached statements are finalized.
+        sqlite3_close_v2(connection)
     }
 
     /// Closes the connection. Safe to call more than once; later calls do nothing.
     public func close() {
         guard let connection else { return }
+        statements.removeAll()
         sqlite3_close_v2(connection)
         self.connection = nil
     }
 
     /// Runs one or more SQL statements that return no rows.
     public func execute(_ sql: String) throws {
-        try Self.execute(sql, on: openConnection())
+        try check(sqlite3_exec(openConnection(), sql, nil, nil, nil), connection)
     }
 
-    /// Reads a pragma's current value as text, e.g. `pragma("journal_mode")` returns `"wal"`.
-    func pragma(_ name: String) throws -> String? {
-        try Self.queryText("PRAGMA \(name)", on: openConnection())
+    /// Runs one statement with bound parameters, ignoring any rows.
+    public func run(_ sql: String, _ values: [SQLValue] = []) throws {
+        _ = try query(sql, values)
+    }
+
+    public func query(_ sql: String, _ values: [SQLValue] = []) throws -> [Row] {
+        let statement = try prepared(sql)
+        defer { statement.reset() }
+        try statement.bind(values)
+        return try statement.rows()
+    }
+
+    func pragma(_ name: String) throws -> SQLValue? {
+        try query("PRAGMA \(name)").first?.values.first
+    }
+
+    var cachedStatementCount: Int { statements.count }
+
+    private func prepared(_ sql: String) throws -> Statement {
+        if let cached = statements[sql] { return cached }
+        let statement = try Statement(sql, connection: openConnection())
+        statements[sql] = statement
+        return statement
     }
 
     private func openConnection() throws -> OpaquePointer {
@@ -59,38 +82,14 @@ public actor Database {
         return connection
     }
 
-    // These are static and take the raw connection so `init` can call them before the actor
-    // is fully initialized. A synchronous actor init can't call isolated methods.
-
+    // Static so the synchronous init can call it before the actor is fully initialized.
     private static func configure(_ connection: OpaquePointer, inMemory: Bool) throws {
-
-        let mode = try queryText("PRAGMA journal_mode=WAL", on: connection)
-        guard mode == (inMemory ? "memory" : "wal") else {
-            throw StorageError.unexpectedJournalMode(mode ?? "")
+        let mode = try Statement("PRAGMA journal_mode=WAL", connection: connection)
+            .rows().first?.values.first
+        guard mode == .text(inMemory ? "memory" : "wal") else {
+            throw StorageError.unexpectedJournalMode(String(describing: mode))
         }
-
-        try execute("PRAGMA synchronous=FULL", on: connection)
-        try execute("PRAGMA foreign_keys=ON", on: connection)
-    }
-
-    private static func execute(_ sql: String, on connection: OpaquePointer) throws {
-        try check(sqlite3_exec(connection, sql, nil, nil, nil), connection)
-    }
-
-    /// Returns the first column of the first row as text, or `nil` if there are no rows.
-    /// A stand-in until Session 1.2 adds a proper statement wrapper.
-    private static func queryText(_ sql: String, on connection: OpaquePointer) throws -> String? {
-        var statement: OpaquePointer?
-        try check(sqlite3_prepare_v2(connection, sql, -1, &statement, nil), connection)
-        defer { sqlite3_finalize(statement) }
-        let rc = sqlite3_step(statement)
-        switch rc {
-        case SQLITE_ROW:
-            return sqlite3_column_text(statement, 0).map { String(cString: $0) }
-        case SQLITE_DONE:
-            return nil
-        default:
-            throw StorageError(code: rc, connection: connection)
-        }
+        try check(sqlite3_exec(connection, "PRAGMA synchronous=FULL", nil, nil, nil), connection)
+        try check(sqlite3_exec(connection, "PRAGMA foreign_keys=ON", nil, nil, nil), connection)
     }
 }
