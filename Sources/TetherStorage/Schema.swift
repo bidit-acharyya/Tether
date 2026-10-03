@@ -2,25 +2,6 @@
 
 import Foundation
 
-public struct ReplicaID: Hashable, Sendable {
-    public let bytes: Data
-
-    public init?(bytes: Data) {
-        guard bytes.count == 16 else { return nil }
-        self.bytes = bytes
-    }
-
-    private init(unchecked bytes: Data) {
-        self.bytes = bytes
-    }
-
-    public static func random() -> ReplicaID {
-        var generator = SystemRandomNumberGenerator()
-        let bytes = (0..<16).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
-        return ReplicaID(unchecked: Data(bytes))
-    }
-}
-
 enum Schema {
     static let migrations: [Migration] = [
         // 1: ops is the source of truth; state is rebuildable from it.

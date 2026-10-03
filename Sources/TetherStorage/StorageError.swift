@@ -11,6 +11,9 @@ public enum StorageError: Error, Equatable {
     case typeMismatch(column: String)
     case schemaTooNew(found: Int, supported: Int)
     case corrupt(String)
+    case truncated
+    case unknownFormatVersion(UInt8)
+    case invalidEncoding(String)
 }
 
 extension StorageError {
