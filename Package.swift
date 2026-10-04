@@ -23,6 +23,8 @@ let package = Package(
         .target(name: "TetherTransportCloudKit", dependencies: ["TetherSync"]),
         .target(name: "TetherSim", dependencies: ["TetherSync"]),
         .executableTarget(name: "TetherCrashWriter", dependencies: ["TetherStorage"]),
+        .executableTarget(
+            name: "TetherBenchmarks", dependencies: ["TetherStorage"], path: "Benchmarks"),
 
         .testTarget(
             name: "TetherStorageTests", dependencies: ["TetherStorage", "TetherCrashWriter"]),

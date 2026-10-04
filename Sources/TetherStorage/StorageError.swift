@@ -23,7 +23,11 @@ extension StorageError {
         let message =
             connection.map { String(cString: sqlite3_errmsg($0)) }
             ?? String(cString: sqlite3_errstr(code))
-        self = .sqlite(code: code, message: message)
+        if code == SQLITE_CORRUPT || code == SQLITE_NOTADB {
+            self = .corrupt(message)
+        } else {
+            self = .sqlite(code: code, message: message)
+        }
     }
 }
 

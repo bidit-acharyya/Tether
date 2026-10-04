@@ -28,6 +28,14 @@ public struct Row: Sendable, Equatable {
         return value
     }
 
+    /// An INTEGER column holding a UInt64. A negative value means the row is corrupt.
+    public func uint64(_ column: String) throws -> UInt64 {
+        guard let value = UInt64(exactly: try int(column)) else {
+            throw StorageError.corrupt("negative \(column)")
+        }
+        return value
+    }
+
     public func double(_ column: String) throws -> Double {
         guard case .double(let value) = try value(column) else {
             throw StorageError.typeMismatch(column: column)

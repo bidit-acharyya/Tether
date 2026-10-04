@@ -5,23 +5,6 @@ import Testing
 
 @testable import TetherStorage
 
-/// Ops from a few replicas touching a few fields, with small HLCs so ties happen.
-private func randomHistory(count: Int, using rng: inout SeededGenerator) -> [Op] {
-    let replicas = (0..<3).map { _ in ReplicaID.random(using: &rng) }
-    let docs = (0..<4).map { _ in DocID.random(using: &rng) }
-    var counters = [ReplicaID: UInt64]()
-    return (0..<count).map { _ in
-        let replica = replicas.randomElement(using: &rng) ?? replicas[0]
-        counters[replica, default: 0] += 1
-        return Op(
-            replicaID: replica, counter: counters[replica, default: 0],
-            hlc: UInt64.random(in: 0...50, using: &rng),
-            docID: docs.randomElement(using: &rng) ?? docs[0],
-            field: ["title", "done", "position"].randomElement(using: &rng) ?? "title",
-            kind: 0, body: Data([UInt8.random(in: .min ... .max, using: &rng)]))
-    }
-}
-
 private func makeOp(_ replica: ReplicaID, _ counter: UInt64, hlc: UInt64, body: UInt8) -> Op {
     Op(
         replicaID: replica, counter: counter, hlc: hlc, docID: DocID(bytes: Data(count: 16))!,

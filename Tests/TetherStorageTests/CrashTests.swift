@@ -29,11 +29,15 @@ private func runAndKill(writer: URL, path: String, delay: Duration) async throws
     process.arguments = [path]
     process.standardOutput = stdout
     process.standardError = stderr
+    // Await exit instead of blocking a thread in waitUntilExit().
+    let exited = AsyncStream<Void> { continuation in
+        process.terminationHandler = { _ in continuation.finish() }
+    }
     try process.run()
 
     try await Task.sleep(for: delay)
     kill(process.processIdentifier, SIGKILL)
-    process.waitUntilExit()
+    for await _ in exited {}
 
     let errors = try readAll(stderr)
     try #require(process.terminationReason == .uncaughtSignal, "writer exited early: \(errors)")

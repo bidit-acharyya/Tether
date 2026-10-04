@@ -10,4 +10,10 @@ A Mac on v1 and an iPhone on v2, both offline, edit the same list, reconnect, an
 
 - Swift 6.1 (Xcode 16.3), Swift 6 language mode, zero warnings
 - iOS 17, macOS 14, watchOS 10
-- System SQLite, tested against 3.43.2 (macOS 15)
+- System SQLite, tested against 3.54.0 (macOS 27)
+
+## Benchmarks
+
+| Measurement | Result | Run |
+|---|---|---|
+| 10,000 op inserts, one transaction, `synchronous=FULL` | 40 ms median of 5 | MacBook Air, macOS 27.0.1, `swift run -c release TetherBenchmarks` |

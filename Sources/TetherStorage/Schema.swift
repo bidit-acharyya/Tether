@@ -43,6 +43,7 @@ extension Database {
     /// Opens a database with Tether's schema applied and a replica id assigned.
     public static func openStore(path: String) async throws -> Database {
         let db = try Database(path: path)
+        try await db.checkPragma("quick_check")
         try await db.migrate(Schema.migrations)
         _ = try await db.replicaID()
         return db

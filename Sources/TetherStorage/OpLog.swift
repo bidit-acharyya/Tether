@@ -61,7 +61,7 @@ extension Database {
             guard let id = ReplicaID(bytes: try row.blob("replica_id")) else {
                 throw StorageError.corrupt("version_vector.replica_id")
             }
-            vector[id] = UInt64(try row.int("max_counter"))
+            vector[id] = try row.uint64("max_counter")
         }
         return vector
     }
@@ -77,7 +77,7 @@ extension Database {
             guard ours > theirs else { continue }
             let rows = try query(
                 """
-                SELECT payload, crc32 FROM ops
+                SELECT \(opColumns) FROM ops
                 WHERE replica_id = ? AND counter > ? ORDER BY counter
                 """,
                 [.blob(replica.bytes), try sqlInt(theirs, "counter")])
@@ -88,11 +88,14 @@ extension Database {
 
     /// Throws away `state` and recomputes it by replaying every op in (hlc, replica_id) order.
     public func rebuildState() throws {
-        try transaction { db in
-            try db.execute("DELETE FROM state")
-            for row in try db.query("SELECT payload, crc32 FROM ops ORDER BY hlc, replica_id") {
-                try db.applyToState(try db.decodeStored(row))
-            }
+        try transaction { db in try db.replayOps() }
+    }
+
+    /// rebuildState's body, for callers already inside a transaction.
+    func replayOps() throws {
+        try execute("DELETE FROM state")
+        for row in try query("SELECT \(opColumns) FROM ops ORDER BY hlc, replica_id") {
+            try applyToState(try decodeStored(row))
         }
     }
 
@@ -104,7 +107,7 @@ extension Database {
             else { throw StorageError.corrupt("state ids") }
             return StateRow(
                 docID: docID, field: try row.text("field"), value: try row.blob("value"),
-                hlc: UInt64(try row.int("hlc")), replicaID: replicaID)
+                hlc: try row.uint64("hlc"), replicaID: replicaID)
         }
     }
 
@@ -128,9 +131,18 @@ extension Database {
         guard CRC32.checksum(payload) == UInt32(truncatingIfNeeded: try row.int("crc32")) else {
             throw StorageError.corrupt("op checksum mismatch")
         }
-        return try Op(decoding: payload)
+        let op = try Op(decoding: payload)
+        // The indexed columns sit outside the CRC, so check them against the payload.
+        guard try row.blob("replica_id") == op.replicaID.bytes,
+            try row.uint64("counter") == op.counter,
+            try row.uint64("hlc") == op.hlc,
+            try row.blob("doc_id") == op.docID.bytes
+        else { throw StorageError.corrupt("op columns don't match payload") }
+        return op
     }
 }
+
+private let opColumns = "replica_id, counter, hlc, doc_id, payload, crc32"
 
 // SQLite integers are signed; anything above Int64.max would sort wrongly.
 private func sqlInt(_ value: UInt64, _ name: String) throws -> SQLValue {
