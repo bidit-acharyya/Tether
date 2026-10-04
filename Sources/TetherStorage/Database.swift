@@ -89,6 +89,12 @@ public actor Database {
 
     var cachedStatementCount: Int { statements.count }
 
+    /// Rows changed by the most recent INSERT, UPDATE or DELETE.
+    var changes: Int {
+        guard let connection else { return 0 }
+        return Int(sqlite3_changes(connection))
+    }
+
     private func prepared(_ sql: String) throws -> Statement {
         if let cached = statements[sql] { return cached }
         let statement = try Statement(sql, connection: openConnection())

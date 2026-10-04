@@ -14,6 +14,7 @@ public enum StorageError: Error, Equatable {
     case truncated
     case unknownFormatVersion(UInt8)
     case invalidEncoding(String)
+    case valueTooLarge(String)
 }
 
 extension StorageError {

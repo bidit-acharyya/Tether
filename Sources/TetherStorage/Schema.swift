@@ -50,15 +50,25 @@ extension Database {
 
     /// This device's replica id, created on first use and stable after that.
     public func replicaID() throws -> ReplicaID {
-        try transaction { db in
+        if let existing = try storedReplicaID() { return existing }
+        return try transaction { db in
             try db.run(
                 "INSERT OR IGNORE INTO meta(key, value) VALUES ('replica_id', ?)",
                 [.blob(ReplicaID.random().bytes)])
-            let row = try db.query("SELECT value FROM meta WHERE key = 'replica_id'").first
-            guard let bytes = try row?.blob("value"), let id = ReplicaID(bytes: bytes) else {
+            guard let id = try db.storedReplicaID() else {
                 throw StorageError.corrupt("replica_id")
             }
             return id
         }
+    }
+
+    private func storedReplicaID() throws -> ReplicaID? {
+        guard let row = try query("SELECT value FROM meta WHERE key = 'replica_id'").first else {
+            return nil
+        }
+        guard let id = ReplicaID(bytes: try row.blob("value")) else {
+            throw StorageError.corrupt("replica_id")
+        }
+        return id
     }
 }
