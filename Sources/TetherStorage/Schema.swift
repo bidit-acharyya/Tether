@@ -63,6 +63,19 @@ extension Database {
         }
     }
 
+    public func meta(_ key: String) throws -> Data? {
+        try query("SELECT value FROM meta WHERE key = ?", [.text(key)]).first?.blob("value")
+    }
+
+    public func setMeta(_ key: String, _ value: Data) throws {
+        try run(
+            """
+            INSERT INTO meta(key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            [.text(key), .blob(value)])
+    }
+
     private func storedReplicaID() throws -> ReplicaID? {
         guard let row = try query("SELECT value FROM meta WHERE key = 'replica_id'").first else {
             return nil

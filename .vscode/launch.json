@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:offstate-synchronizer}",
+            "name": "Debug TetherCrashWriter",
+            "target": "TetherCrashWriter",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug TetherCrashWriter"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:offstate-synchronizer}",
+            "name": "Release TetherCrashWriter",
+            "target": "TetherCrashWriter",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release TetherCrashWriter"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:offstate-synchronizer}",
+            "name": "Debug TetherBenchmarks",
+            "target": "TetherBenchmarks",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug TetherBenchmarks"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:offstate-synchronizer}",
+            "name": "Release TetherBenchmarks",
+            "target": "TetherBenchmarks",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release TetherBenchmarks"
+        }
+    ]
+}
