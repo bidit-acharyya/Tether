@@ -29,7 +29,8 @@ let package = Package(
         .testTarget(
             name: "TetherStorageTests", dependencies: ["TetherStorage", "TetherCrashWriter"]),
         .testTarget(name: "TetherCoreTests", dependencies: ["TetherCore", "TetherStorage"]),
-        .testTarget(name: "TetherSyncTests", dependencies: ["TetherSync"]),
+        .testTarget(
+            name: "TetherSyncTests", dependencies: ["TetherSync", "TetherCore", "TetherStorage"]),
         .testTarget(name: "TetherTransportP2PTests", dependencies: ["TetherTransportP2P"]),
         .testTarget(
             name: "TetherTransportCloudKitTests", dependencies: ["TetherTransportCloudKit"]),
