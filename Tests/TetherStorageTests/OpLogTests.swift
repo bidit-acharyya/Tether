@@ -36,6 +36,16 @@ private func makeOp(_ replica: ReplicaID, _ counter: UInt64, hlc: UInt64, body: 
         #expect(try await a.versionVector() == b.versionVector(), "seed \(seed)")
     }
 
+    /// Regression: seed 3 of appendOrderDoesNotMatter once failed because the generator let
+    /// one replica write twice with the same HLC, which a real clock never does.
+    @Test(arguments: 0..<20)
+    func generatedHistoriesNeverReuseAStamp(seed: UInt64) {
+        var rng = SeededGenerator(seed: seed)
+        let history = randomHistory(count: 200, using: &rng)
+        let stamps = history.map { "\($0.replicaID.bytes.base64EncodedString())-\($0.hlc)" }
+        #expect(Set(stamps).count == history.count, "seed \(seed)")
+    }
+
     @Test func reappendingIsIgnored() async throws {
         var rng = SeededGenerator(seed: 1)
         let db = try await Database.openStore(path: ":memory:")

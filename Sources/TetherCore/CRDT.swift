@@ -19,7 +19,7 @@ public struct Stamp: Comparable, Hashable, Sendable {
     }
 
     public static func < (lhs: Stamp, rhs: Stamp) -> Bool {
-        (lhs.hlc, lhs.replicaID) < (rhs.hlc, rhs.replicaID)
+        lhs.hlc != rhs.hlc ? lhs.hlc < rhs.hlc : lhs.replicaID < rhs.replicaID
     }
 }
 

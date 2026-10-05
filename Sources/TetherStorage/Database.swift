@@ -8,7 +8,9 @@ public actor Database {
     /// The live connection, or `nil` once `close()` has run.
     nonisolated(unsafe) private var connection: OpaquePointer?
     private var statements: [String: Statement] = [:]
-    private var inTransaction = false
+    private(set) var inTransaction = false
+    /// How an op merges into a field's state; nil means plain last-writer-wins on the body.
+    private(set) var fieldMerge: FieldMerge?
 
     public init(path: String) throws {
         var connection: OpaquePointer?
@@ -38,6 +40,10 @@ public actor Database {
     deinit {
         // close_v2 defers the close until any cached statements are finalized.
         sqlite3_close_v2(connection)
+    }
+
+    public func setFieldMerge(_ merge: @escaping FieldMerge) {
+        fieldMerge = merge
     }
 
     /// Closes the connection. Safe to call more than once; later calls do nothing.

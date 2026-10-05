@@ -1,0 +1,28 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  long-tests:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.3"
+
+      # Release build: about 3x faster than debug for the convergence harness.
+      - name: Convergence, 10,000 seeds
+        env:
+          TETHER_CONVERGENCE_SEEDS: "10000"
+        run: swift test -c release -Xswiftc -enable-testing --filter ConvergenceTests
+
+      - name: Kill -9, 200 iterations
+        env:
+          TETHER_CRASH_ITERATIONS: "200"
+        run: swift test --filter CrashTests

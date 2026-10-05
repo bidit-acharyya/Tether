@@ -10,37 +10,71 @@ public struct StateRow: Sendable, Equatable {
     public let replicaID: ReplicaID
 }
 
+/// Merges `op` into a field's current state bytes (nil if the field is new).
+public typealias FieldMerge = @Sendable (_ op: Op, _ current: Data?) throws -> Data
+
 extension Database {
     /// Appends ops in one transaction. Ops already in the log are skipped.
     /// Returns how many were new.
     @discardableResult
     public func append(_ ops: [Op]) throws -> Int {
-        try transaction { db in
-            var inserted = 0
-            for op in ops {
-                let payload = op.encoded()
-                try db.run(
-                    """
-                    INSERT OR IGNORE INTO ops(replica_id, counter, hlc, doc_id, payload, crc32)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        .blob(op.replicaID.bytes), try sqlInt(op.counter, "counter"),
-                        try sqlInt(op.hlc, "hlc"), .blob(op.docID.bytes), .blob(payload),
-                        .int(Int64(CRC32.checksum(payload))),
-                    ])
-                guard db.changes > 0 else { continue }
-                inserted += 1
-                try db.applyToState(op)
-                try db.run(
-                    """
-                    INSERT INTO version_vector(replica_id, max_counter) VALUES (?, ?)
-                    ON CONFLICT(replica_id) DO UPDATE
-                    SET max_counter = max(max_counter, excluded.max_counter)
-                    """,
-                    [.blob(op.replicaID.bytes), try sqlInt(op.counter, "counter")])
+        try transaction { db in try db.appendInTransaction(ops) }
+    }
+
+    /// append's body, for callers that batch other writes into the same transaction.
+    public func appendInTransaction(_ ops: [Op]) throws -> Int {
+        precondition(inTransaction, "appendInTransaction needs an open transaction")
+        var inserted = 0
+        for op in ops {
+            let payload = op.encoded()
+            try run(
+                """
+                INSERT OR IGNORE INTO ops(replica_id, counter, hlc, doc_id, payload, crc32)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    .blob(op.replicaID.bytes), try sqlInt(op.counter, "counter"),
+                    try sqlInt(op.hlc, "hlc"), .blob(op.docID.bytes), .blob(payload),
+                    .int(Int64(CRC32.checksum(payload))),
+                ])
+            guard changes > 0 else { continue }
+            inserted += 1
+            try applyToState(op)
+            try run(
+                """
+                INSERT INTO version_vector(replica_id, max_counter) VALUES (?, ?)
+                ON CONFLICT(replica_id) DO UPDATE
+                SET max_counter = max(max_counter, excluded.max_counter)
+                """,
+                [.blob(op.replicaID.bytes), try sqlInt(op.counter, "counter")])
+        }
+        return inserted
+    }
+
+    /// A field's current merged state bytes, or nil if no op has touched it.
+    public func stateValue(docID: DocID, field: String) throws -> Data? {
+        try query(
+            "SELECT value FROM state WHERE doc_id = ? AND field = ?",
+            [.blob(docID.bytes), .text(field)]
+        ).first?.blob("value")
+    }
+
+    /// The state of every field of `docID` whose name starts with `prefix`.
+    public func stateValues(docID: DocID, fieldPrefix prefix: String) throws -> [Data] {
+        // A range on the (doc_id, field) primary key; U+FFFF sorts after any suffix we use.
+        try query(
+            "SELECT value FROM state WHERE doc_id = ? AND field >= ? AND field < ?",
+            [.blob(docID.bytes), .text(prefix), .text(prefix + "\u{FFFF}")]
+        ).map { try $0.blob("value") }
+    }
+
+    /// Every (doc, value) for one field name, e.g. all item positions.
+    public func stateValues(field: String) throws -> [(docID: DocID, value: Data)] {
+        try query("SELECT doc_id, value FROM state WHERE field = ?", [.text(field)]).map { row in
+            guard let docID = DocID(bytes: try row.blob("doc_id")) else {
+                throw StorageError.corrupt("state.doc_id")
             }
-            return inserted
+            return (docID, try row.blob("value"))
         }
     }
 
@@ -111,8 +145,27 @@ extension Database {
         }
     }
 
-    // Last writer wins by (hlc, replica_id) until Week 2 swaps in CRDT merges.
+    // With a fieldMerge, state.value is whatever it returns and (hlc, replica_id) is the
+    // highest stamp that touched the field. Without one, the higher stamp's body wins.
     private func applyToState(_ op: Op) throws {
+        if let fieldMerge {
+            let current = try stateValue(docID: op.docID, field: op.field)
+            try run(
+                """
+                INSERT INTO state(doc_id, field, value, hlc, replica_id) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(doc_id, field) DO UPDATE SET value = excluded.value,
+                hlc = CASE WHEN (excluded.hlc, excluded.replica_id) > (state.hlc, state.replica_id)
+                    THEN excluded.hlc ELSE state.hlc END,
+                replica_id = CASE
+                    WHEN (excluded.hlc, excluded.replica_id) > (state.hlc, state.replica_id)
+                    THEN excluded.replica_id ELSE state.replica_id END
+                """,
+                [
+                    .blob(op.docID.bytes), .text(op.field), .blob(try fieldMerge(op, current)),
+                    try sqlInt(op.hlc, "hlc"), .blob(op.replicaID.bytes),
+                ])
+            return
+        }
         try run(
             """
             INSERT INTO state(doc_id, field, value, hlc, replica_id) VALUES (?, ?, ?, ?, ?)

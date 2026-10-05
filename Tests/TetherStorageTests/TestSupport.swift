@@ -17,17 +17,20 @@ func withTemporaryDirectory(_ body: (URL) async throws -> Void) async throws {
     try await body(url)
 }
 
-/// Ops from a few replicas touching a few fields, with small HLCs so ties happen.
+/// Ops from a few replicas touching a few fields. HLCs are small so replicas tie with each
+/// other, but each replica's own HLCs strictly increase, as a real clock guarantees.
 func randomHistory(count: Int, using rng: inout SeededGenerator) -> [Op] {
     let replicas = (0..<3).map { _ in ReplicaID.random(using: &rng) }
     let docs = (0..<4).map { _ in DocID.random(using: &rng) }
     var counters = [ReplicaID: UInt64]()
+    var clocks = [ReplicaID: UInt64]()
     return (0..<count).map { _ in
         let replica = replicas.randomElement(using: &rng) ?? replicas[0]
         counters[replica, default: 0] += 1
+        clocks[replica, default: 0] += UInt64.random(in: 1...3, using: &rng)
         return Op(
             replicaID: replica, counter: counters[replica, default: 0],
-            hlc: UInt64.random(in: 0...50, using: &rng),
+            hlc: clocks[replica, default: 0],
             docID: docs.randomElement(using: &rng) ?? docs[0],
             field: ["title", "done", "position"].randomElement(using: &rng) ?? "title",
             kind: 0, body: Data([UInt8.random(in: .min ... .max, using: &rng)]))

@@ -41,21 +41,28 @@ enum Schema {
 
 extension Database {
     /// Opens a database with Tether's schema applied and a replica id assigned.
-    public static func openStore(path: String) async throws -> Database {
+    /// `replicaID` is used only for a new store; tests pass one so seeds replay exactly.
+    public static func openStore(path: String, replicaID: ReplicaID? = nil) async throws
+        -> Database
+    {
         let db = try Database(path: path)
         try await db.checkPragma("quick_check")
         try await db.migrate(Schema.migrations)
-        _ = try await db.replicaID()
+        _ = try await db.replicaID(creating: replicaID ?? .random())
         return db
     }
 
     /// This device's replica id, created on first use and stable after that.
     public func replicaID() throws -> ReplicaID {
+        try replicaID(creating: .random())
+    }
+
+    private func replicaID(creating candidate: ReplicaID) throws -> ReplicaID {
         if let existing = try storedReplicaID() { return existing }
         return try transaction { db in
             try db.run(
                 "INSERT OR IGNORE INTO meta(key, value) VALUES ('replica_id', ?)",
-                [.blob(ReplicaID.random().bytes)])
+                [.blob(candidate.bytes)])
             guard let id = try db.storedReplicaID() else {
                 throw StorageError.corrupt("replica_id")
             }

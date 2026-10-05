@@ -15,11 +15,11 @@ public struct AddTag: Hashable, Comparable, Sendable {
     }
 
     public static func < (lhs: AddTag, rhs: AddTag) -> Bool {
-        (lhs.replicaID, lhs.counter) < (rhs.replicaID, rhs.counter)
+        lhs.replicaID != rhs.replicaID ? lhs.replicaID < rhs.replicaID : lhs.counter < rhs.counter
     }
 }
 
-public struct ORSet<Element: FieldValue & Hashable>: CRDT {
+public struct ORSet<Element: SetElement>: CRDT {
     public private(set) var adds: [Element: Set<AddTag>] = [:]
     public private(set) var tombstones: Set<AddTag> = []
 
@@ -66,7 +66,7 @@ extension ORSet {
             var writer = ByteWriter()
             element.write(to: &writer)
             return (element: writer.data, tags: tags)
-        }.sorted { $0.element.lexicographicallyPrecedes($1.element) }
+        }.sorted { bytesPrecede($0.element, $1.element) }
 
         var writer = ByteWriter()
         writer.writeVarint(UInt64(entries.count))
@@ -90,6 +90,20 @@ extension ORSet {
     }
 }
 
+/// Byte-wise order via memcmp; much faster than iterating Data.
+private func bytesPrecede(_ lhs: Data, _ rhs: Data) -> Bool {
+    lhs.withUnsafeBytes { left in
+        rhs.withUnsafeBytes { right in
+            let shared = min(left.count, right.count)
+            if shared > 0, let l = left.baseAddress, let r = right.baseAddress {
+                let order = memcmp(l, r, shared)
+                if order != 0 { return order < 0 }
+            }
+            return left.count < right.count
+        }
+    }
+}
+
 private func writeTags(_ tags: Set<AddTag>, to writer: inout ByteWriter) {
     writer.writeVarint(UInt64(tags.count))
     for tag in tags.sorted() {
@@ -109,6 +123,26 @@ private func readTags(from reader: inout ByteReader) throws -> Set<AddTag> {
     return tags
 }
 
+// Storage layout: each element lives in its own sub-field, `field/<hex of element>`.
+// Every add and remove names one element, so an op rewrites one small row, not the set.
+extension ORSet {
+    public static func subfield(_ field: String, for element: Element) -> String {
+        var writer = ByteWriter()
+        element.write(to: &writer)
+        let hex = writer.data.flatMap { byte in
+            [hexDigits[Int(byte >> 4)], hexDigits[Int(byte & 0xF)]]
+        }
+        return field + "/" + String(decoding: hex, as: UTF8.self)
+    }
+
+    /// The sub-field prefix shared by every element of `field`.
+    public static func subfieldPrefix(_ field: String) -> String {
+        field + "/"
+    }
+}
+
+private let hexDigits = Array("0123456789abcdef".utf8)
+
 extension Op {
     /// An `add` op; its tag is the op's own (replica, counter), so it is unique.
     public static func add<Element>(
@@ -118,7 +152,8 @@ extension Op {
         let delta = set.addition(of: element, tag: AddTag(replicaID: replicaID, counter: counter))
         return Op(
             replicaID: replicaID, counter: counter, hlc: hlc.rawValue, docID: docID,
-            field: field, kind: OpKind.add.rawValue, body: delta.encoded())
+            field: ORSet.subfield(field, for: element), kind: OpKind.add.rawValue,
+            body: delta.encoded())
     }
 
     /// A `remove` op tombstoning the tags `set` has observed for `element`.
@@ -128,6 +163,7 @@ extension Op {
     ) -> Op {
         Op(
             replicaID: replicaID, counter: counter, hlc: hlc.rawValue, docID: docID,
-            field: field, kind: OpKind.remove.rawValue, body: set.removal(of: element).encoded())
+            field: ORSet.subfield(field, for: element), kind: OpKind.remove.rawValue,
+            body: set.removal(of: element).encoded())
     }
 }

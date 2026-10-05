@@ -8,6 +8,27 @@ public protocol FieldValue: Sendable, Equatable {
     static func read(from reader: inout ByteReader) throws -> Self
 }
 
+/// A value an ORSet can hold. Each one encodes as length-prefixed bytes, so a set of any
+/// element type can be merged as a set of raw Data without knowing the type.
+public protocol SetElement: FieldValue, Hashable {}
+
+extension String: SetElement {}
+extension Data: SetElement {}
+extension DocID: SetElement {}
+
+extension DocID: FieldValue {
+    public func write(to writer: inout ByteWriter) {
+        writer.writeBytes(bytes)
+    }
+
+    public static func read(from reader: inout ByteReader) throws -> DocID {
+        guard let id = DocID(bytes: try reader.readBytes()) else {
+            throw StorageError.invalidEncoding("doc id is not 16 bytes")
+        }
+        return id
+    }
+}
+
 extension String: FieldValue {
     public func write(to writer: inout ByteWriter) {
         writer.writeString(self)
