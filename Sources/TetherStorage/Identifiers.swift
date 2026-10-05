@@ -2,8 +2,13 @@
 
 import Foundation
 
-public struct ReplicaID: Hashable, Sendable {
+public struct ReplicaID: Hashable, Comparable, Sendable {
     public let bytes: Data
+
+    /// Byte order, matching how SQLite compares the replica_id blobs.
+    public static func < (lhs: ReplicaID, rhs: ReplicaID) -> Bool {
+        lhs.bytes.lexicographicallyPrecedes(rhs.bytes)
+    }
 
     public init?(bytes: Data) {
         guard bytes.count == 16 else { return nil }
