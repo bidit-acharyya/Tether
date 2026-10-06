@@ -3,6 +3,7 @@
 
 import Foundation
 import Observation
+import SwiftUI
 import TetherCore
 import TetherStorage
 import TetherSync

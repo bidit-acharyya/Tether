@@ -1,6 +1,7 @@
 // Debug overlay for the demo video: this replica, its version vector, and each peer.
 
 import SwiftUI
+import TetherSync
 
 struct DebugOverlay: View {
     let info: AppModel.DebugInfo

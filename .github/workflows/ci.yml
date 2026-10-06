@@ -21,7 +21,7 @@ jobs:
           sqlite3 --version
 
       - name: Lint
-        run: swift format lint --strict -r Sources Tests Benchmarks Demo/AppSources Package.swift
+        run: swift format lint --strict -r Sources Tests Benchmarks Demo/TetherDemo/TetherDemo Package.swift
 
       - name: Build
         run: swift build
