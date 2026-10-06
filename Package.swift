@@ -19,10 +19,13 @@ let package = Package(
         .target(name: "TetherStorage"),
         .target(name: "TetherCore", dependencies: ["TetherStorage"]),
         .target(name: "TetherSync", dependencies: ["TetherCore"]),
-        .target(name: "TetherTransportP2P", dependencies: ["TetherSync"]),
+        .target(name: "TetherTransportP2P", dependencies: ["TetherSync", "TetherStorage"]),
         .target(name: "TetherTransportCloudKit", dependencies: ["TetherSync"]),
-        .target(name: "TetherSim", dependencies: ["TetherSync"]),
+        .target(name: "TetherSim", dependencies: ["TetherSync", "TetherCore", "TetherStorage"]),
         .executableTarget(name: "TetherCrashWriter", dependencies: ["TetherStorage"]),
+        .executableTarget(
+            name: "TetherP2PDemo",
+            dependencies: ["TetherTransportP2P", "TetherSync", "TetherCore", "TetherStorage"]),
         .executableTarget(
             name: "TetherBenchmarks", dependencies: ["TetherStorage"], path: "Benchmarks"),
 
@@ -31,10 +34,14 @@ let package = Package(
         .testTarget(name: "TetherCoreTests", dependencies: ["TetherCore", "TetherStorage"]),
         .testTarget(
             name: "TetherSyncTests", dependencies: ["TetherSync", "TetherCore", "TetherStorage"]),
-        .testTarget(name: "TetherTransportP2PTests", dependencies: ["TetherTransportP2P"]),
+        .testTarget(
+            name: "TetherTransportP2PTests",
+            dependencies: ["TetherTransportP2P", "TetherSync", "TetherCore", "TetherStorage"]),
         .testTarget(
             name: "TetherTransportCloudKitTests", dependencies: ["TetherTransportCloudKit"]),
-        .testTarget(name: "TetherSimTests", dependencies: ["TetherSim"]),
+        .testTarget(
+            name: "TetherSimTests",
+            dependencies: ["TetherSim", "TetherSync", "TetherCore", "TetherStorage"]),
     ],
     swiftLanguageModes: [.v6]
 )

@@ -26,7 +26,7 @@ public enum Change: Sendable {
     case removeTag(item: DocID, String)
 }
 
-public struct Item: Sendable, Equatable {
+public struct Item: Sendable, Equatable, Identifiable {
     public let id: DocID
     public let title: String
     public let done: Bool
@@ -134,18 +134,31 @@ extension Database {
     /// The visible items of a list, in display order.
     public func items(inList list: DocID) throws -> [Item] {
         let ids = try orSet(DocID.self, doc: list, field: Field.items).elements
-        let items = try ids.compactMap { id -> Item? in
-            guard try register(Bool.self, doc: id, field: Field.deleted)?.value != true else {
-                return nil
-            }
-            return Item(
-                id: id, title: try register(String.self, doc: id, field: Field.title)?.value ?? "",
-                done: try register(Bool.self, doc: id, field: Field.done)?.value ?? false,
-                position: try register(String.self, doc: id, field: Field.position)?.value ?? "",
-                tags: try orSet(String.self, doc: id, field: Field.tags).elements)
+        return Item.sorted(try ids.compactMap(visibleItem))
+    }
+
+    /// One item if it is on `list` and not deleted, else nil. Lets a view reload just the
+    /// documents a change touched.
+    public func item(_ id: DocID, inList list: DocID) throws -> Item? {
+        guard try orSet(id, doc: list, field: Field.items).contains(id) else { return nil }
+        return try visibleItem(id)
+    }
+
+    private func visibleItem(_ id: DocID) throws -> Item? {
+        guard try register(Bool.self, doc: id, field: Field.deleted)?.value != true else {
+            return nil
         }
-        return items.sorted {
-            $0.position != $1.position ? $0.position < $1.position : $0.id < $1.id
-        }
+        return Item(
+            id: id, title: try register(String.self, doc: id, field: Field.title)?.value ?? "",
+            done: try register(Bool.self, doc: id, field: Field.done)?.value ?? false,
+            position: try register(String.self, doc: id, field: Field.position)?.value ?? "",
+            tags: try orSet(String.self, doc: id, field: Field.tags).elements)
+    }
+}
+
+extension Item {
+    /// Display order: by position, ties (keys made concurrently) broken by id.
+    public static func sorted(_ items: [Item]) -> [Item] {
+        items.sorted { $0.position != $1.position ? $0.position < $1.position : $0.id < $1.id }
     }
 }

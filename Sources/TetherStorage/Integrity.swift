@@ -29,14 +29,15 @@ extension Database {
         }
     }
 
+    /// The contiguous prefix per replica, recomputed from the ops themselves.
     private func vectorFromOps() throws -> [ReplicaID: UInt64] {
         var vector: [ReplicaID: UInt64] = [:]
-        let rows = try query("SELECT replica_id, max(counter) AS top FROM ops GROUP BY replica_id")
-        for row in rows {
+        for row in try query("SELECT replica_id, counter FROM ops ORDER BY replica_id, counter") {
             guard let id = ReplicaID(bytes: try row.blob("replica_id")) else {
                 throw StorageError.corrupt("ops.replica_id")
             }
-            vector[id] = try row.uint64("top")
+            let counter = try row.uint64("counter")
+            if counter == vector[id, default: 0] + 1 { vector[id] = counter }
         }
         return vector
     }

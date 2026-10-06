@@ -68,13 +68,31 @@ private func makeOp(_ replica: ReplicaID, _ counter: UInt64, hlc: UInt64, body: 
         #expect(try await db.stateSnapshot().first?.value == Data([3]))
     }
 
-    @Test func versionVectorTracksMaxCounters() async throws {
+    @Test func versionVectorCountsOnlyTheContiguousPrefix() async throws {
         let a = ReplicaID.random()
         let b = ReplicaID.random()
         let db = try await Database.openStore(path: ":memory:")
         try await db.append([makeOp(a, 2, hlc: 1, body: 0), makeOp(a, 1, hlc: 1, body: 0)])
         try await db.append(makeOp(b, 5, hlc: 1, body: 0))
+        #expect(try await db.versionVector() == [a: 2])  // b's 1...4 are missing.
+
+        // A peer that has nothing must still be offered b's ops once the gap fills.
+        try await db.append((1...3).map { makeOp(b, $0, hlc: 1, body: 0) })
+        #expect(try await db.versionVector() == [a: 2, b: 3])
+        #expect(try await db.ops(missingFrom: [:]).filter { $0.replicaID == b }.count == 3)
+        try await db.append(makeOp(b, 4, hlc: 1, body: 0))
         #expect(try await db.versionVector() == [a: 2, b: 5])
+        try await db.verify()
+    }
+
+    @Test func longRunsOfOutOfOrderOpsAdvanceTheVector() async throws {
+        let a = ReplicaID.random()
+        let db = try await Database.openStore(path: ":memory:")
+        try await db.append((2...300).reversed().map { makeOp(a, UInt64($0), hlc: 1, body: 0) })
+        #expect(try await db.versionVector().isEmpty)
+        try await db.append(makeOp(a, 1, hlc: 1, body: 0))
+        #expect(try await db.versionVector() == [a: 300])
+        try await db.verify()
     }
 
     @Test func nextCounterFollowsOwnOps() async throws {

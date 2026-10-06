@@ -39,6 +39,26 @@
             "target": "TetherBenchmarks",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release TetherBenchmarks"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:offstate-synchronizer}",
+            "name": "Debug TetherP2PDemo",
+            "target": "TetherP2PDemo",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug TetherP2PDemo"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:offstate-synchronizer}",
+            "name": "Release TetherP2PDemo",
+            "target": "TetherP2PDemo",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release TetherP2PDemo"
         }
     ]
 }

@@ -23,6 +23,7 @@ A Mac on v1 and an iPhone on v2, both offline, edit the same list, reconnect, an
 | Test | What it proves | Result |
 |---|---|---|
 | Convergence harness (`ConvergenceTests`) | 3–5 replicas, 50–500 ops each, ±2 s clock skew, partial syncs, every op delivered in a different order with ~10% duplicates: all replicas end byte-identical and match a rebuild of their own log | 10,000 seeds green in 12.3 min (release) |
+| Network simulation (`SimulationTests`) | 3–5 nodes running the real sync protocol over 60 s of virtual time with 5–20% drops, duplicates, reordering and partitions, then quiet until the network is silent: identical state, equal version vectors, no deleted item reappears, nothing left unacked. Same seed, same trace | 1,000 seeds green in 62 s (release) |
 | Merge laws (`checkLaws`) | Commutative, associative, idempotent for every CRDT, 1,000 random triples per seed | Green |
 | Kill -9 (`CrashTests`) | A writer killed mid-transaction never loses a committed op or leaves a partial batch | 200 iterations green |
 | Corruption (`CorruptionTests`) | Damaged files are refused or serve exactly the original data | 165/200 random overwrites detected, the rest harmless |

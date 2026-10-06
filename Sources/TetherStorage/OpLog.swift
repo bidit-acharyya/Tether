@@ -40,15 +40,45 @@ extension Database {
             guard changes > 0 else { continue }
             inserted += 1
             try applyToState(op)
-            try run(
-                """
-                INSERT INTO version_vector(replica_id, max_counter) VALUES (?, ?)
-                ON CONFLICT(replica_id) DO UPDATE
-                SET max_counter = max(max_counter, excluded.max_counter)
-                """,
-                [.blob(op.replicaID.bytes), try sqlInt(op.counter, "counter")])
+            try advanceVersionVector(op.replicaID, inserted: op.counter)
         }
         return inserted
+    }
+
+    // The version vector holds, per replica, the highest n such that ops 1...n are all
+    // here. Ops can arrive out of order, so a gap holds the counter back until it fills;
+    // claiming the highest counter seen would make peers skip the missing op forever.
+    private func advanceVersionVector(_ replica: ReplicaID, inserted counter: UInt64) throws {
+        let current =
+            try query(
+                "SELECT max_counter FROM version_vector WHERE replica_id = ?",
+                [.blob(replica.bytes)]
+            ).first?.uint64("max_counter") ?? 0
+        var prefix = current
+        if counter == current + 1 {
+            prefix = counter
+            while true {
+                let next = try query(
+                    """
+                    SELECT counter FROM ops WHERE replica_id = ? AND counter > ?
+                    ORDER BY counter LIMIT 64
+                    """,
+                    [.blob(replica.bytes), try sqlInt(prefix, "counter")]
+                ).map { try $0.uint64("counter") }
+                let before = prefix
+                for found in next {
+                    guard found == prefix + 1 else { break }
+                    prefix = found
+                }
+                if next.count < 64 || prefix - before < UInt64(next.count) { break }
+            }
+        }
+        try run(
+            """
+            INSERT INTO version_vector(replica_id, max_counter) VALUES (?, ?)
+            ON CONFLICT(replica_id) DO UPDATE SET max_counter = excluded.max_counter
+            """,
+            [.blob(replica.bytes), try sqlInt(prefix, "counter")])
     }
 
     /// A field's current merged state bytes, or nil if no op has touched it.
@@ -89,9 +119,13 @@ extension Database {
         return (try versionVector()[own] ?? 0) + 1
     }
 
+    /// Per replica, the highest n such that every op 1...n is here. Replicas with no
+    /// contiguous ops yet are left out.
     public func versionVector() throws -> [ReplicaID: UInt64] {
         var vector: [ReplicaID: UInt64] = [:]
-        for row in try query("SELECT replica_id, max_counter FROM version_vector") {
+        let rows = try query(
+            "SELECT replica_id, max_counter FROM version_vector WHERE max_counter > 0")
+        for row in rows {
             guard let id = ReplicaID(bytes: try row.blob("replica_id")) else {
                 throw StorageError.corrupt("version_vector.replica_id")
             }
@@ -100,21 +134,19 @@ extension Database {
         return vector
     }
 
-    /// Every op this database has that a peer with `vector` hasn't seen.
+    /// Every op in this database's contiguous prefix that a peer with `vector` lacks, sorted
+    /// by replica then counter. Ops past a gap are held back until the gap fills.
     public func ops(missingFrom vector: [ReplicaID: UInt64]) throws -> [Op] {
         var missing: [Op] = []
-        let known = try versionVector().sorted {
-            $0.key.bytes.lexicographicallyPrecedes($1.key.bytes)
-        }
-        for (replica, ours) in known {
+        for (replica, ours) in try versionVector().sorted(by: { $0.key < $1.key }) {
             let theirs = vector[replica, default: 0]
             guard ours > theirs else { continue }
             let rows = try query(
                 """
                 SELECT \(opColumns) FROM ops
-                WHERE replica_id = ? AND counter > ? ORDER BY counter
+                WHERE replica_id = ? AND counter > ? AND counter <= ? ORDER BY counter
                 """,
-                [.blob(replica.bytes), try sqlInt(theirs, "counter")])
+                [.blob(replica.bytes), try sqlInt(theirs, "counter"), try sqlInt(ours, "counter")])
             missing += try rows.map(decodeStored)
         }
         return missing

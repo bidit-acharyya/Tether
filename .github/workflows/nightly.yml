@@ -22,6 +22,11 @@ jobs:
           TETHER_CONVERGENCE_SEEDS: "10000"
         run: swift test -c release -Xswiftc -enable-testing --filter ConvergenceTests
 
+      - name: Network simulation, 1,000 seeds
+        env:
+          TETHER_SIM_SEEDS: "1000"
+        run: swift test -c release -Xswiftc -enable-testing --filter SimulationTests
+
       - name: Kill -9, 200 iterations
         env:
           TETHER_CRASH_ITERATIONS: "200"
