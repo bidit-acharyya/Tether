@@ -108,6 +108,40 @@ private func nextEvent(
         right.stop()
     }
 
+    /// Like Wi-Fi dropping, or the other app being killed and relaunched.
+    @Test func redialsWhenThePeerComesBack() async throws {
+        let left = P2PTransport(replicaID: a, bonjour: false)
+        let right = P2PTransport(replicaID: b, bonjour: false)
+        let port = try await right.start()
+        try await left.start()
+        var leftEvents = left.events.makeAsyncIterator()
+
+        left.connect(to: loopback(port))
+        #expect(await nextEvent(&leftEvents) == .connected(right.peerID))
+        right.stop()
+        #expect(await nextEvent(&leftEvents) == .disconnected(right.peerID))
+
+        let restarted = P2PTransport(replicaID: b, bonjour: false)
+        try await restarted.start(port: NWEndpoint.Port(rawValue: port)!)
+        #expect(await nextEvent(&leftEvents, timeout: .seconds(10)) == .connected(right.peerID))
+        try await restarted.send(.ack(VersionVector([b: 1])), to: left.peerID)
+        #expect(
+            await nextEvent(&leftEvents)
+                == .received(.ack(VersionVector([b: 1])), from: right.peerID))
+        left.stop()
+        restarted.stop()
+    }
+
+    /// Regression for the real-device test: with Wi-Fi off, both devices still showed the
+    /// other as "live" because the dead TCP connection was never noticed.
+    @Test func deadConnectionsAreDetectedWithinSeconds() {
+        let tcp = P2PTransport.tcpOptions()
+        #expect(tcp.enableKeepalive)
+        #expect(tcp.keepaliveIdle + tcp.keepaliveInterval * tcp.keepaliveCount <= 15)
+        #expect(tcp.connectionDropTime > 0 && tcp.connectionDropTime <= 15)
+        #expect(tcp.connectionTimeout > 0)
+    }
+
     @Test func sendingToAnUnknownPeerThrows() async throws {
         let transport = P2PTransport(replicaID: a, bonjour: false)
         try await transport.start()
