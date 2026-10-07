@@ -27,4 +27,6 @@ public enum OpKind: UInt8, Sendable {
     case set = 1
     case add = 2
     case remove = 3
+    /// PN-Counter increment (v3's `views`); merging it arrives in Session 4.3.
+    case increment = 4
 }

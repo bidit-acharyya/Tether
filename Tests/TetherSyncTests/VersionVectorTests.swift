@@ -70,9 +70,11 @@ private func randomVector(_ rng: inout SeededGenerator) -> VersionVector {
 private func randomMessage(_ rng: inout SeededGenerator) -> Message {
     switch Int.random(in: 0..<3, using: &rng) {
     case 0:
+        let low = UInt64.random(in: 1...3, using: &rng)
         return .hello(
             replicaID: .random(using: &rng), protocolVersion: UInt64.random(in: 1...9, using: &rng),
-            vector: randomVector(&rng))
+            vector: randomVector(&rng),
+            schemaVersions: low...(low + UInt64.random(in: 0...3, using: &rng)))
     case 1:
         return .ops((0..<Int.random(in: 0...20, using: &rng)).map { _ in randomOp(&rng) })
     default:
@@ -101,6 +103,33 @@ private func randomMessage(_ rng: inout SeededGenerator) -> Message {
                 }
             }
         }
+    }
+
+    /// A Hello laid out as message format 1 wrote it, before schema ranges existed.
+    @Test func formatOneHelloStillDecodes() throws {
+        var writer = ByteWriter()
+        writer.write(1)
+        writer.write(1)  // hello
+        writer.writeFixed(a.bytes)
+        writer.writeVarint(1)
+        VersionVector([a: 4]).write(to: &writer)
+        let message = try Message(decoding: writer.data)
+        #expect(
+            message
+                == .hello(
+                    replicaID: a, protocolVersion: 1, vector: VersionVector([a: 4]),
+                    schemaVersions: 1...1))
+    }
+
+    @Test func unknownMessageExtensionsAreSkipped() throws {
+        var bytes = Message.ack(VersionVector([a: 1])).encoded()
+        bytes.removeLast()  // the empty extension count
+        var writer = ByteWriter()
+        writer.writeVarint(1)
+        writer.writeVarint(77)
+        writer.writeBytes(Data("from the future".utf8))
+        bytes += writer.data
+        #expect(try Message(decoding: bytes) == .ack(VersionVector([a: 1])))
     }
 
     @Test func badHeadersAreRejected() {

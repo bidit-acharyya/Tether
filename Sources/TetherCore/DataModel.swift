@@ -11,6 +11,8 @@ public enum Field {
     public static let position = "position"
     public static let deleted = "deleted"
     public static let tags = "tags"
+    public static let priority = "priority"
+    public static let views = "views"
 }
 
 /// One user action. Positions come from FractionalIndex.
@@ -37,12 +39,14 @@ public struct Item: Sendable, Equatable, Identifiable {
 /// Builds the ops for one change, each with its own counter and HLC tick.
 struct OpWriter {
     let replica: ReplicaID
+    let schemaVersion: UInt64
     var clock: HybridLogicalClock
     var counter: UInt64
     private(set) var ops: [Op] = []
 
-    init(replica: ReplicaID, clock: HybridLogicalClock, counter: UInt64) {
+    init(replica: ReplicaID, schemaVersion: UInt64, clock: HybridLogicalClock, counter: UInt64) {
         self.replica = replica
+        self.schemaVersion = schemaVersion
         self.clock = clock
         self.counter = counter
     }
@@ -72,7 +76,9 @@ struct OpWriter {
     }
 
     private mutating func append(_ op: Op) {
-        ops.append(op)
+        var stamped = op
+        stamped.schemaVersion = schemaVersion
+        ops.append(stamped)
         counter += 1
     }
 }

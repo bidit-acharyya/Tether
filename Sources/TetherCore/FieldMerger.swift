@@ -17,7 +17,7 @@ public enum FieldMerger {
             var set = try current.map { try ORSet<Data>(decoding: $0) } ?? ORSet()
             set.merge(try ORSet<Data>(decoding: op.body))
             return set.encoded()
-        case nil:
+        case .increment, nil:
             throw CoreError.unknownOpKind(op.kind)
         }
     }

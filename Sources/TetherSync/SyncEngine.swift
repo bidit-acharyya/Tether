@@ -12,6 +12,8 @@ public actor SyncEngine {
         public let phase: SyncSession.Phase
         public let unackedBatches: Int
         public let peerVector: VersionVector
+        /// The peer's app schema versions, once its hello arrives.
+        public let peerSchemaVersions: ClosedRange<UInt64>?
     }
 
     private let replica: Replica
@@ -45,7 +47,7 @@ public actor SyncEngine {
         sessions.sorted { $0.key.rawValue < $1.key.rawValue }.map { peer, session in
             PeerStatus(
                 peer: peer, phase: session.phase, unackedBatches: session.unackedBatches,
-                peerVector: session.peerVector)
+                peerVector: session.peerVector, peerSchemaVersions: session.peerSchemaVersions)
         }
     }
 
@@ -53,7 +55,8 @@ public actor SyncEngine {
         switch event {
         case .connected(let peer):
             cancelTimers(peer)
-            sessions[peer] = SyncSession(replicaID: replica.id)
+            sessions[peer] = SyncSession(
+                replicaID: replica.id, schemaVersions: 1...replica.manifest.version)
             await handle(peer, .connected(local: await localVector()))
         case .disconnected(let peer):
             cancelTimers(peer)

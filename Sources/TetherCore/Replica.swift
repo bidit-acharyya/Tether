@@ -7,21 +7,36 @@ import TetherStorage
 public actor Replica {
     public nonisolated let id: ReplicaID
     public nonisolated let database: Database
+    /// What this app version knows about its data.
+    public nonisolated let manifest: SchemaManifest
     private let wallClock: any WallClock
     private var subscribers: [UUID: AsyncStream<Set<DocID>>.Continuation] = [:]
 
-    private init(database: Database, id: ReplicaID, wallClock: any WallClock) {
+    private init(
+        database: Database, id: ReplicaID, manifest: SchemaManifest, wallClock: any WallClock
+    ) {
         self.database = database
         self.id = id
+        self.manifest = manifest
         self.wallClock = wallClock
     }
 
+    /// Opens a store as the app version described by `manifest`. Upgrading from the store's
+    /// last manifest is checked first; opening it with an older app version is allowed.
     public static func open(
-        path: String, wallClock: any WallClock = SystemClock(), replicaID: ReplicaID? = nil
+        path: String, wallClock: any WallClock = SystemClock(), replicaID: ReplicaID? = nil,
+        manifest: SchemaManifest = TaskListSchema.v1
     ) async throws -> Replica {
+        try manifest.validate()
         let database = try await Database.openStore(path: path, replicaID: replicaID)
         await database.setFieldMerge(FieldMerger.merge)
-        return Replica(database: database, id: try await database.replicaID(), wallClock: wallClock)
+        if let previous = try await database.storedManifest(), previous.version < manifest.version {
+            try manifest.validate(upgradingFrom: previous)
+        }
+        try await database.saveManifest(manifest)
+        return Replica(
+            database: database, id: try await database.replicaID(), manifest: manifest,
+            wallClock: wallClock)
     }
 
     /// Ids of documents changed by each local change or remote batch, as they commit.
@@ -39,10 +54,11 @@ public actor Replica {
     /// Applies a local change and returns the ops it produced.
     @discardableResult
     public func perform(_ change: Change) async throws -> [Op] {
-        let (id, wallClock) = (self.id, self.wallClock)
+        let (id, wallClock, version) = (self.id, self.wallClock, manifest.version)
         let ops = try await database.transaction { db in
             let clock = HybridLogicalClock(wallClock: wallClock, last: try db.lastHLC())
-            var writer = OpWriter(replica: id, clock: clock, counter: try db.nextCounter())
+            var writer = OpWriter(
+                replica: id, schemaVersion: version, clock: clock, counter: try db.nextCounter())
             try db.write(change, into: &writer)
             _ = try db.appendInTransaction(writer.ops)
             try db.saveHLC(writer.clock.last)

@@ -105,7 +105,9 @@ private final class World {
         try await nodes[0].replica.perform(.createList(list, title: "List"))
         for node in nodes.indices {
             for peer in nodes.indices where peer != node {
-                nodes[node].sessions[peer] = SyncSession(replicaID: nodes[node].replica.id)
+                nodes[node].sessions[peer] = SyncSession(
+                    replicaID: nodes[node].replica.id,
+                    schemaVersions: 1...nodes[node].replica.manifest.version)
             }
         }
         for node in nodes.indices {
@@ -284,7 +286,8 @@ private final class World {
 
     private func describe(_ message: Message) -> String {
         switch message {
-        case .hello(_, _, let vector): return "hello(\(vector.counters.count))"
+        case .hello(_, _, let vector, let schemas):
+            return "hello(\(vector.counters.count), v\(schemas.lowerBound)-\(schemas.upperBound))"
         case .ops(let ops): return "ops(\(ops.count))"
         case .ack(let vector): return "ack(\(vector.counters.values.reduce(0, +)))"
         }

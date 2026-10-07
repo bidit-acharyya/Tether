@@ -46,8 +46,11 @@ public struct SyncSession: Sendable {
     public static let maxBackoff = Duration.seconds(30)
 
     public let replicaID: ReplicaID
+    /// App schema versions this replica can read: 1 up to its manifest's version.
+    public let schemaVersions: ClosedRange<UInt64>
     public private(set) var phase = Phase.idle
     public private(set) var peerReplicaID: ReplicaID?
+    public private(set) var peerSchemaVersions: ClosedRange<UInt64>?
     /// What the peer has told us it has, via hello and acks.
     public private(set) var peerVector = VersionVector()
     /// peerVector plus everything sent and not yet acked: no need to send it again.
@@ -58,8 +61,9 @@ public struct SyncSession: Sendable {
     private var loading = false
     private var reloadNeeded = false
 
-    public init(replicaID: ReplicaID) {
+    public init(replicaID: ReplicaID, schemaVersions: ClosedRange<UInt64> = 1...1) {
         self.replicaID = replicaID
+        self.schemaVersions = schemaVersions
     }
 
     public var unackedBatches: Int { inFlight.count }
@@ -93,10 +97,11 @@ public struct SyncSession: Sendable {
                 .setTimer(.batch(id), after: Self.backoff(attempt: batch.attempt)),
             ]
 
-        case .received(.hello(let id, _, let vector)):
-            // A newer protocol version is accepted: the message format is versioned
-            // separately, and newer ops are kept even when not understood (Week 4).
+        case .received(.hello(let id, _, let vector, let peerSchemas)):
+            // A peer on a newer schema is accepted, never refused: ops for fields this
+            // version doesn't know are still stored, merged and forwarded.
             peerReplicaID = id
+            peerSchemaVersions = peerSchemas
             peerVector.merge(vector)
             promised.merge(vector)
             // A repeated hello means ours was lost: answer it so the peer can go live.
@@ -150,7 +155,9 @@ public struct SyncSession: Sendable {
     }
 
     private func hello() -> Message {
-        .hello(replicaID: replicaID, protocolVersion: Message.protocolVersion, vector: local)
+        .hello(
+            replicaID: replicaID, protocolVersion: Message.protocolVersion, vector: local,
+            schemaVersions: schemaVersions)
     }
 
     /// Asks for whatever the peer may lack, unless a load is already outstanding.

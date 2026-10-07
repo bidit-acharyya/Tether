@@ -51,6 +51,24 @@ private func liveSession(local: VersionVector, peerVector: VersionVector = Versi
         #expect(effects.isEmpty)
     }
 
+    @Test func helloFromANewerSchemaIsAcceptedNotRefused() {
+        var session = SyncSession(replicaID: me, schemaVersions: 1...1)
+        let connected = session.handle(.connected(local: VersionVector([me: 2])))
+        #expect(
+            connected.first
+                == .send(
+                    .hello(
+                        replicaID: me, protocolVersion: Message.protocolVersion,
+                        vector: VersionVector([me: 2]), schemaVersions: 1...1)))
+        let newer = Message.hello(
+            replicaID: peer, protocolVersion: Message.protocolVersion, vector: VersionVector(),
+            schemaVersions: 1...3)
+        let effects = session.handle(.received(newer))
+        #expect(session.phase == .live)
+        #expect(session.peerSchemaVersions == 1...3)
+        #expect(effects == [.load(missingFrom: VersionVector())])
+    }
+
     @Test func helloIsRetriedUntilThePeerAnswers() {
         var session = SyncSession(replicaID: me)
         _ = session.handle(.connected(local: VersionVector()))
