@@ -80,16 +80,26 @@ public struct SchemaManifest: Sendable, Equatable {
 
     /// The spec for a storage field id. OR-Set sub-fields (`items/<hex>`) use their base id.
     public func field(_ storageID: String) -> FieldSpec? {
-        let base = storageID.split(separator: "/", maxSplits: 1).first.map(String.init) ?? storageID
+        let base = Self.baseID(of: storageID)
         for document in documents {
             if let spec = document.fields.first(where: { $0.id == base }) { return spec }
         }
         return nil
     }
 
-    /// Every op kind this version can merge.
+    public static func baseID(of storageID: String) -> String {
+        storageID.split(separator: "/", maxSplits: 1).first.map(String.init) ?? storageID
+    }
+
+    /// Every op kind this manifest's fields are written with.
     public var opKinds: Set<UInt8> {
         Set(documents.flatMap(\.fields).flatMap(\.kind.opKinds))
+    }
+
+    /// Every op kind this version can merge, on any field: LWW and OR-Set shipped in v1, so
+    /// every version has them, plus whatever kinds its own fields add.
+    public var mergeableKinds: Set<UInt8> {
+        opKinds.union(CRDTKind.lww.opKinds).union(CRDTKind.orSet.opKinds)
     }
 
     /// Checks this manifest on its own: one meaning per field id, nothing from the future.

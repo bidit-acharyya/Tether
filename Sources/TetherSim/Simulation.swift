@@ -306,6 +306,8 @@ extension Change {
         case .deleteItem: "deleteItem"
         case .addTag: "addTag"
         case .removeTag: "removeTag"
+        case .setPriority: "setPriority"
+        case .incrementViews: "incrementViews"
         }
     }
 }

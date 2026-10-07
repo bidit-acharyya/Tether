@@ -81,9 +81,9 @@ private struct Boom: Error {}
 }
 
 @Suite struct SchemaTests {
-    @Test func freshStoreHasVersionOneAndAllTables() async throws {
+    @Test func freshStoreHasEveryMigrationAndAllTables() async throws {
         let db = try await Database.openStore(path: ":memory:")
-        #expect(try await db.userVersion() == 1)
+        #expect(try await db.userVersion() == 2)
         let names = try await db.query(
             """
             SELECT name FROM sqlite_master
@@ -92,6 +92,22 @@ private struct Boom: Error {}
             """)
         let expected = ["meta", "ops", "ops_by_hlc", "state", "version_vector"]
         #expect(try names.map { try $0.text("name") } == expected)
+    }
+
+    @Test func versionOneStoresGainTheStateFlags() async throws {
+        try await withTemporaryDirectory { directory in
+            let path = directory.appendingPathComponent("store.sqlite").path
+            let old = try Database(path: path)
+            try await old.migrate(Array(Schema.migrations.prefix(1)))
+            try await old.run(
+                "INSERT INTO state VALUES (?, 'title', x'01', 1, ?)",
+                [.blob(Data(repeating: 1, count: 16)), .blob(Data(repeating: 2, count: 16))])
+            await old.close()
+
+            let upgraded = try await Database.openStore(path: path)
+            let row = try #require(try await upgraded.stateSnapshot().first)
+            #expect(row.value == Data([1]) && row.known && !row.pending)
+        }
     }
 
     @Test func replicaIDIsStableAcrossReopens() async throws {
@@ -104,7 +120,7 @@ private struct Boom: Error {}
 
             let reopened = try await Database.openStore(path: path)
             #expect(try await reopened.replicaID() == id)
-            #expect(try await reopened.userVersion() == 1)
+            #expect(try await reopened.userVersion() == 2)
         }
     }
 

@@ -8,10 +8,27 @@ public struct StateRow: Sendable, Equatable {
     public let value: Data
     public let hlc: UInt64
     public let replicaID: ReplicaID
+    /// The app's manifest has this field; UIs can skip the rest.
+    public let known: Bool
+    /// Holds ops this version can't merge; `value` is meaningless until an upgrade rebuilds it.
+    public let pending: Bool
 }
 
-/// Merges `op` into a field's current state bytes (nil if the field is new).
-public typealias FieldMerge = @Sendable (_ op: Op, _ current: Data?) throws -> Data
+/// How ops merge into state. Storage never decodes values itself.
+public struct MergeRules: Sendable {
+    /// Merges `op` into a field's current bytes (nil if new). Returns nil if this version
+    /// can't merge the op's kind, which marks the field pending.
+    public let merge: @Sendable (_ op: Op, _ current: Data?) throws -> Data?
+    public let isKnown: @Sendable (_ field: String) -> Bool
+
+    public init(
+        merge: @escaping @Sendable (Op, Data?) throws -> Data?,
+        isKnown: @escaping @Sendable (String) -> Bool
+    ) {
+        self.merge = merge
+        self.isKnown = isKnown
+    }
+}
 
 extension Database {
     /// Appends ops in one transaction. Ops already in the log are skipped.
@@ -87,6 +104,14 @@ extension Database {
             "SELECT value FROM state WHERE doc_id = ? AND field = ?",
             [.blob(docID.bytes), .text(field)]
         ).first?.blob("value")
+    }
+
+    /// Whether a field holds ops this version can't merge yet.
+    public func isPending(docID: DocID, field: String) throws -> Bool {
+        try query(
+            "SELECT pending FROM state WHERE doc_id = ? AND field = ?",
+            [.blob(docID.bytes), .text(field)]
+        ).first?.int("pending") == 1
     }
 
     /// The state of every field of `docID` whose name starts with `prefix`.
@@ -173,19 +198,28 @@ extension Database {
             else { throw StorageError.corrupt("state ids") }
             return StateRow(
                 docID: docID, field: try row.text("field"), value: try row.blob("value"),
-                hlc: try row.uint64("hlc"), replicaID: replicaID)
+                hlc: try row.uint64("hlc"), replicaID: replicaID, known: try row.int("known") == 1,
+                pending: try row.int("pending") == 1)
         }
     }
 
-    // With a fieldMerge, state.value is whatever it returns and (hlc, replica_id) is the
-    // highest stamp that touched the field. Without one, the higher stamp's body wins.
+    // With merge rules, state.value is whatever they return and (hlc, replica_id) is the
+    // highest stamp that touched the field. Without them, the higher stamp's body wins.
+    // An op the rules can't merge is still logged and synced; its field just goes pending.
     private func applyToState(_ op: Op) throws {
-        if let fieldMerge {
-            let current = try stateValue(docID: op.docID, field: op.field)
+        if let mergeRules {
+            let row = try query(
+                "SELECT value, pending FROM state WHERE doc_id = ? AND field = ?",
+                [.blob(op.docID.bytes), .text(op.field)]
+            ).first
+            let current = try row?.blob("value")
+            let merged = try row?.int("pending") == 1 ? nil : mergeRules.merge(op, current)
             try run(
                 """
-                INSERT INTO state(doc_id, field, value, hlc, replica_id) VALUES (?, ?, ?, ?, ?)
+                INSERT INTO state(doc_id, field, value, hlc, replica_id, known, pending)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(doc_id, field) DO UPDATE SET value = excluded.value,
+                known = excluded.known, pending = excluded.pending,
                 hlc = CASE WHEN (excluded.hlc, excluded.replica_id) > (state.hlc, state.replica_id)
                     THEN excluded.hlc ELSE state.hlc END,
                 replica_id = CASE
@@ -193,8 +227,9 @@ extension Database {
                     THEN excluded.replica_id ELSE state.replica_id END
                 """,
                 [
-                    .blob(op.docID.bytes), .text(op.field), .blob(try fieldMerge(op, current)),
+                    .blob(op.docID.bytes), .text(op.field), .blob(merged ?? current ?? Data()),
                     try sqlInt(op.hlc, "hlc"), .blob(op.replicaID.bytes),
+                    .int(mergeRules.isKnown(op.field) ? 1 : 0), .int(merged == nil ? 1 : 0),
                 ])
             return
         }

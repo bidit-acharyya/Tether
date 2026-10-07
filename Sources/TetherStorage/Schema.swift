@@ -35,7 +35,15 @@ enum Schema {
                     value BLOB NOT NULL
                 ) STRICT;
                 """)
-        }
+        },
+        // 2: known = the app's manifest has this field; pending = its ops can't be merged yet.
+        { db in
+            try db.execute(
+                """
+                ALTER TABLE state ADD COLUMN known INTEGER NOT NULL DEFAULT 1;
+                ALTER TABLE state ADD COLUMN pending INTEGER NOT NULL DEFAULT 0;
+                """)
+        },
     ]
 }
 

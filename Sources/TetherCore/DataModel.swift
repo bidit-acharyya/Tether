@@ -26,6 +26,10 @@ public enum Change: Sendable {
     case deleteItem(DocID, fromList: DocID)
     case addTag(item: DocID, String)
     case removeTag(item: DocID, String)
+    /// v2 and later.
+    case setPriority(item: DocID, Int64)
+    /// v3 and later.
+    case incrementViews(item: DocID, by: Int64)
 }
 
 public struct Item: Sendable, Equatable, Identifiable {
@@ -75,6 +79,15 @@ struct OpWriter {
                 counter: counter, hlc: try clock.tick()))
     }
 
+    mutating func increment(_ amount: Int64, of current: PNCounter, doc: DocID, field: String)
+        throws
+    {
+        append(
+            .increment(
+                amount, of: current, docID: doc, field: field, replicaID: replica,
+                opCounter: counter, hlc: try clock.tick()))
+    }
+
     private mutating func append(_ op: Op) {
         var stamped = op
         stamped.schemaVersion = schemaVersion
@@ -109,7 +122,18 @@ extension Database {
         case .removeTag(let item, let tag):
             let slice = try orSet(tag, doc: item, field: Field.tags)
             try writer.remove(tag, from: slice, doc: item, field: Field.tags)
+        case .setPriority(let item, let priority):
+            try writer.set(priority, doc: item, field: Field.priority)
+        case .incrementViews(let item, let amount):
+            let current = try counter(doc: item, field: Field.views) ?? PNCounter()
+            try writer.increment(amount, of: current, doc: item, field: Field.views)
         }
+    }
+
+    /// A counter field, or nil if it was never written or is still pending.
+    public func counter(doc: DocID, field: String) throws -> PNCounter? {
+        guard try !isPending(docID: doc, field: field) else { return nil }
+        return try stateValue(docID: doc, field: field).map { try PNCounter(decoding: $0) }
     }
 
     public func register<Value: FieldValue>(_: Value.Type, doc: DocID, field: String) throws

@@ -9,8 +9,8 @@ public actor Database {
     nonisolated(unsafe) private var connection: OpaquePointer?
     private var statements: [String: Statement] = [:]
     private(set) var inTransaction = false
-    /// How an op merges into a field's state; nil means plain last-writer-wins on the body.
-    private(set) var fieldMerge: FieldMerge?
+    /// How ops merge into state; nil means plain last-writer-wins on the body.
+    private(set) var mergeRules: MergeRules?
 
     public init(path: String) throws {
         var connection: OpaquePointer?
@@ -42,8 +42,8 @@ public actor Database {
         sqlite3_close_v2(connection)
     }
 
-    public func setFieldMerge(_ merge: @escaping FieldMerge) {
-        fieldMerge = merge
+    public func setMergeRules(_ rules: MergeRules) {
+        mergeRules = rules
     }
 
     /// Closes the connection. Safe to call more than once; later calls do nothing.

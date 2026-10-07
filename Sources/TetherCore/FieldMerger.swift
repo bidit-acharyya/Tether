@@ -1,15 +1,29 @@
 // FieldMerger: how storage merges an op into a field's state, chosen by the op's kind.
-// It never needs the field's value type, which is what Week 4's version skew relies on.
+// It never needs the field's value type, so a version merges fields it has never heard of;
+// only an op kind it can't merge leaves the field pending.
 
 import Foundation
 import TetherStorage
 
 public enum CoreError: Error, Equatable {
-    case unknownOpKind(UInt8)
+    /// A change tried to write a field or op kind this app version's manifest doesn't have.
+    case notInManifest(field: String, kind: UInt8)
 }
 
 public enum FieldMerger {
-    public static let merge: FieldMerge = { op, current in
+    /// The rules for the app version described by `manifest`.
+    public static func rules(for manifest: SchemaManifest) -> MergeRules {
+        let kinds = manifest.mergeableKinds
+        let fields = Set(manifest.documents.flatMap(\.fields).map(\.id))
+        return MergeRules(
+            merge: { op, current in
+                guard kinds.contains(op.kind) else { return nil }
+                return try merge(op, current)
+            },
+            isKnown: { fields.contains(SchemaManifest.baseID(of: $0)) })
+    }
+
+    static func merge(_ op: Op, _ current: Data?) throws -> Data? {
         switch OpKind(rawValue: op.kind) {
         case .set:
             return try mergeRegisters(current, op.body)
@@ -17,8 +31,12 @@ public enum FieldMerger {
             var set = try current.map { try ORSet<Data>(decoding: $0) } ?? ORSet()
             set.merge(try ORSet<Data>(decoding: op.body))
             return set.encoded()
-        case .increment, nil:
-            throw CoreError.unknownOpKind(op.kind)
+        case .increment:
+            var counter = try current.map { try PNCounter(decoding: $0) } ?? PNCounter()
+            counter.merge(try PNCounter(decoding: op.body))
+            return counter.encoded()
+        case nil:
+            return nil
         }
     }
 
