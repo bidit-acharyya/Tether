@@ -64,8 +64,7 @@ public actor Replica {
         let ops = try await database.transaction { db in
             let clock = HybridLogicalClock(wallClock: wallClock, last: try db.lastHLC())
             var writer = OpWriter(
-                replica: id, schemaVersion: manifest.version, clock: clock,
-                counter: try db.nextCounter())
+                replica: id, manifest: manifest, clock: clock, counter: try db.nextCounter())
             try db.write(change, into: &writer)
             // A version only writes what its manifest declares.
             for op in writer.ops {

@@ -6,6 +6,12 @@ import TetherStorage
 public protocol FieldValue: Sendable, Equatable {
     func write(to writer: inout ByteWriter)
     static func read(from reader: inout ByteReader) throws -> Self
+    /// The manifest type this value is stored as; nil for raw bytes.
+    static var valueType: ValueType? { get }
+}
+
+extension FieldValue {
+    public static var valueType: ValueType? { nil }
 }
 
 /// A value an ORSet can hold. Each one encodes as length-prefixed bytes, so a set of any
@@ -17,6 +23,8 @@ extension Data: SetElement {}
 extension DocID: SetElement {}
 
 extension DocID: FieldValue {
+    public static var valueType: ValueType? { .docID }
+
     public func write(to writer: inout ByteWriter) {
         writer.writeBytes(bytes)
     }
@@ -30,6 +38,8 @@ extension DocID: FieldValue {
 }
 
 extension String: FieldValue {
+    public static var valueType: ValueType? { .string }
+
     public func write(to writer: inout ByteWriter) {
         writer.writeString(self)
     }
@@ -40,6 +50,8 @@ extension String: FieldValue {
 }
 
 extension Bool: FieldValue {
+    public static var valueType: ValueType? { .bool }
+
     public func write(to writer: inout ByteWriter) {
         writer.write(self ? 1 : 0)
     }
@@ -54,6 +66,8 @@ extension Bool: FieldValue {
 }
 
 extension Int64: FieldValue {
+    public static var valueType: ValueType? { .int64 }
+
     // Zigzag, so small negative numbers stay short as varints.
     public func write(to writer: inout ByteWriter) {
         writer.writeVarint(UInt64(bitPattern: (self << 1) ^ (self >> 63)))

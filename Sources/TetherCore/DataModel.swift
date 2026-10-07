@@ -30,6 +30,8 @@ public enum Change: Sendable {
     case setPriority(item: DocID, Int64)
     /// v3 and later.
     case incrementViews(item: DocID, by: Int64)
+    /// Sets an LWW field by the name this app version uses, e.g. v3's `name`.
+    case set(DocID, type: String, field: String, to: any FieldValue)
 }
 
 public struct Item: Sendable, Equatable, Identifiable {
@@ -43,14 +45,14 @@ public struct Item: Sendable, Equatable, Identifiable {
 /// Builds the ops for one change, each with its own counter and HLC tick.
 struct OpWriter {
     let replica: ReplicaID
-    let schemaVersion: UInt64
+    let manifest: SchemaManifest
     var clock: HybridLogicalClock
     var counter: UInt64
     private(set) var ops: [Op] = []
 
-    init(replica: ReplicaID, schemaVersion: UInt64, clock: HybridLogicalClock, counter: UInt64) {
+    init(replica: ReplicaID, manifest: SchemaManifest, clock: HybridLogicalClock, counter: UInt64) {
         self.replica = replica
-        self.schemaVersion = schemaVersion
+        self.manifest = manifest
         self.clock = clock
         self.counter = counter
     }
@@ -90,7 +92,7 @@ struct OpWriter {
 
     private mutating func append(_ op: Op) {
         var stamped = op
-        stamped.schemaVersion = schemaVersion
+        stamped.schemaVersion = manifest.version
         ops.append(stamped)
         counter += 1
     }
@@ -127,6 +129,10 @@ extension Database {
         case .incrementViews(let item, let amount):
             let current = try counter(doc: item, field: Field.views) ?? PNCounter()
             try writer.increment(amount, of: current, doc: item, field: Field.views)
+        case .set(let doc, let type, let name, let value):
+            let spec = try writer.manifest.spec(
+                name, in: type, kind: .lww, valueType: Swift.type(of: value).valueType)
+            try writer.set(value, doc: doc, field: spec.id)
         }
     }
 

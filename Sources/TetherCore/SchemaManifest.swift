@@ -87,6 +87,11 @@ public struct SchemaManifest: Sendable, Equatable {
         return nil
     }
 
+    /// The spec for the field this version's code calls `name` (the rename lens).
+    public func field(named name: String, in documentType: String) -> FieldSpec? {
+        documents.first { $0.type == documentType }?.fields.first { $0.name == name }
+    }
+
     public static func baseID(of storageID: String) -> String {
         storageID.split(separator: "/", maxSplits: 1).first.map(String.init) ?? storageID
     }

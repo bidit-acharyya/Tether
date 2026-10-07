@@ -8,6 +8,10 @@ import TetherStorage
 public enum CoreError: Error, Equatable {
     /// A change tried to write a field or op kind this app version's manifest doesn't have.
     case notInManifest(field: String, kind: UInt8)
+    /// No field by this name in this document type, for this app version.
+    case unknownField(String)
+    /// The field's CRDT kind or value type doesn't fit the read or write.
+    case typeMismatch(String)
 }
 
 public enum FieldMerger {
