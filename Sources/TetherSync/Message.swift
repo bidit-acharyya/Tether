@@ -14,9 +14,10 @@ public enum SyncError: Error, Equatable {
 public enum Message: Sendable, Equatable {
     /// Sent on connect: who I am, which protocol and app schema versions I speak, and what I
     /// have. A peer on a newer schema is still synced with; the range is informational.
+    /// `isReply` marks an answer to a repeated hello, which is never answered itself.
     case hello(
         replicaID: ReplicaID, protocolVersion: UInt64, vector: VersionVector,
-        schemaVersions: ClosedRange<UInt64> = 1...1)
+        schemaVersions: ClosedRange<UInt64> = 1...1, isReply: Bool = false)
     /// A batch of ops the receiver is missing.
     case ops([Op])
     /// Sent after a batch is durably committed: what I now have.
@@ -36,11 +37,14 @@ extension Message {
         case ack = 3
     }
 
+    /// Hello extension, no bytes: the hello is a reply.
+    private static let replyTag: UInt64 = 1
+
     public func encoded() -> Data {
         var writer = ByteWriter()
         writer.write(Message.formatVersion)
         switch self {
-        case .hello(let replicaID, let protocolVersion, let vector, let schemaVersions):
+        case .hello(let replicaID, let protocolVersion, let vector, let schemaVersions, _):
             writer.write(Kind.hello.rawValue)
             writer.writeFixed(replicaID.bytes)
             writer.writeVarint(protocolVersion)
@@ -55,7 +59,13 @@ extension Message {
             writer.write(Kind.ack.rawValue)
             vector.write(to: &writer)
         }
-        writer.writeVarint(0)  // No extensions yet.
+        if case .hello(_, _, _, _, isReply: true) = self {
+            writer.writeVarint(1)
+            writer.writeVarint(Self.replyTag)
+            writer.writeBytes(Data())
+        } else {
+            writer.writeVarint(0)
+        }
         return writer.data
     }
 
@@ -97,9 +107,17 @@ extension Message {
             throw SyncError.unknownMessageType(type)
         }
         if version == 2 {
+            // Unknown tags are skipped.
             for _ in 0..<(try reader.readVarint()) {
-                _ = try reader.readVarint()
+                let tag = try reader.readVarint()
                 _ = try reader.readBytes()
+                if tag == Self.replyTag,
+                    case .hello(let id, let proto, let vector, let schemas, _) = self
+                {
+                    self = .hello(
+                        replicaID: id, protocolVersion: proto, vector: vector,
+                        schemaVersions: schemas, isReply: true)
+                }
             }
         }
         guard reader.isAtEnd else { throw StorageError.invalidEncoding("trailing bytes") }

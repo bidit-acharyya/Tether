@@ -97,17 +97,18 @@ public struct SyncSession: Sendable {
                 .setTimer(.batch(id), after: Self.backoff(attempt: batch.attempt)),
             ]
 
-        case .received(.hello(let id, _, let vector, let peerSchemas)):
+        case .received(.hello(let id, _, let vector, let peerSchemas, let isReply)):
             // A peer on a newer schema is accepted, never refused: ops for fields this
             // version doesn't know are still stored, merged and forwarded.
             peerReplicaID = id
             peerSchemaVersions = peerSchemas
             peerVector.merge(vector)
             promised.merge(vector)
-            // A repeated hello means ours was lost: answer it so the peer can go live.
+            // A repeated hello means ours was lost: answer it so the peer can go live. Never
+            // answer an answer, or two live peers would trade hellos forever.
             let wasLive = phase == .live
             phase = .live
-            return (wasLive ? [.send(hello())] : []) + loadIfNeeded()
+            return (wasLive && !isReply ? [.send(hello(isReply: true))] : []) + loadIfNeeded()
 
         case .received(.ops(let ops)):
             guard !ops.isEmpty else { return [] }
@@ -154,10 +155,10 @@ public struct SyncSession: Sendable {
         }
     }
 
-    private func hello() -> Message {
+    private func hello(isReply: Bool = false) -> Message {
         .hello(
             replicaID: replicaID, protocolVersion: Message.protocolVersion, vector: local,
-            schemaVersions: schemaVersions)
+            schemaVersions: schemaVersions, isReply: isReply)
     }
 
     /// Asks for whatever the peer may lack, unless a load is already outstanding.

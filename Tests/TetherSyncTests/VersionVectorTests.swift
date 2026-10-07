@@ -74,7 +74,8 @@ private func randomMessage(_ rng: inout SeededGenerator) -> Message {
         return .hello(
             replicaID: .random(using: &rng), protocolVersion: UInt64.random(in: 1...9, using: &rng),
             vector: randomVector(&rng),
-            schemaVersions: low...(low + UInt64.random(in: 0...3, using: &rng)))
+            schemaVersions: low...(low + UInt64.random(in: 0...3, using: &rng)),
+            isReply: Bool.random(using: &rng))
     case 1:
         return .ops((0..<Int.random(in: 0...20, using: &rng)).map { _ in randomOp(&rng) })
     default:

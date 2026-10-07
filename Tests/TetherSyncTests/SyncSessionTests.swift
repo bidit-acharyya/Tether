@@ -80,7 +80,44 @@ private func liveSession(local: VersionVector, peerVector: VersionVector = Versi
     @Test func repeatedHelloIsAnswered() {
         var (session, _) = liveSession(local: VersionVector())
         let effects = session.handle(.received(hello(peer, VersionVector())))
-        #expect(effects == [.send(hello(me, VersionVector()))])
+        #expect(
+            effects == [
+                .send(
+                    .hello(
+                        replicaID: me, protocolVersion: Message.protocolVersion,
+                        vector: VersionVector(), isReply: true))
+            ])
+        let reply = Message.hello(
+            replicaID: peer, protocolVersion: Message.protocolVersion, vector: VersionVector(),
+            isReply: true)
+        #expect(session.handle(.received(reply)).isEmpty)
+    }
+
+    /// Regression (mixed-version simulation, seeds 2 and 48): a hello retry that crossed the
+    /// peer's hello left both sides live, and each answered the other's hello forever.
+    @Test func liveSessionsDontTradeHellosForever() {
+        var sessions = [SyncSession(replicaID: me), SyncSession(replicaID: peer)]
+        var inbox: [(to: Int, Message)] = []
+        for side in 0..<2 {
+            for case .send(let message) in sessions[side].handle(.connected(local: VersionVector()))
+            {
+                inbox.append((1 - side, message))
+            }
+        }
+        // Side 0's retry timer fires before side 1's hello lands.
+        for case .send(let message) in sessions[0].handle(.timerFired(.hello)) {
+            inbox.append((1, message))
+        }
+        var delivered = 0
+        while !inbox.isEmpty, delivered < 20 {
+            let (to, message) = inbox.removeFirst()
+            delivered += 1
+            for case .send(let reply) in sessions[to].handle(.received(message)) {
+                inbox.append((1 - to, reply))
+            }
+        }
+        #expect(inbox.isEmpty)
+        #expect(sessions.allSatisfy { $0.phase == .live })
     }
 
     @Test func loadedOpsAreSentRetriedWithBackoffAndClearedByAck() {

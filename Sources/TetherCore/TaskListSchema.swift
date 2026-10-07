@@ -8,6 +8,12 @@ public enum TaskListSchema {
     public static let v1 = manifest(version: 1)
     public static let v2 = manifest(version: 2)
     public static let v3 = manifest(version: 3)
+    public static let versions = [v1, v2, v3]
+
+    /// Run when a device leaves v1: stores `medium` explicitly. Any real edit beats it.
+    public static let explicitPriority = DataMigration(
+        id: "tasklist.explicit-priority", field: Field.priority, value: mediumPriority,
+        schemaVersion: 2)
 
     /// 0 low, 1 medium, 2 high.
     public static let mediumPriority: Int64 = 1

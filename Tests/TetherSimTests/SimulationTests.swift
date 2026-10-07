@@ -42,6 +42,30 @@ private let seedCount =
         #expect(other.traceHash != first.traceHash)
     }
 
+    /// Nodes start on v1, v2 or v3, some upgrade mid-run, and all reach v3 at the end.
+    @Test(arguments: (0..<UInt64(seedCount)).map { $0 })
+    func mixedVersionsLoseNothingAndConverge(seed: UInt64) async throws {
+        let report = try await Simulation.run(seed: seed, config: .mixed)
+        guard let failure = report.failure else { return }
+        Issue.record(
+            """
+            mixed seed \(seed): \(failure)
+            \(report.opCount) ops, \(report.upgrades) upgrades, \(report.messagesSent) messages
+            last trace lines:
+            \(report.trace.suffix(40).joined(separator: "\n"))
+            """)
+    }
+
+    @Test func mixedRunsReallyMixAndUpgrade() async throws {
+        let report = try await Simulation.run(seed: 7, config: .mixed)
+        #expect(report.failure == nil, "\(report.failure ?? "")")
+        let versions = try #require(report.trace.first { $0.contains(" versions ") })
+        #expect(versions.contains("v1") && (versions.contains("v2") || versions.contains("v3")))
+        #expect(report.trace.contains { $0.contains(" upgrade n") })
+        #expect(report.trace.contains { $0.contains(" migrate n") })
+        #expect(report.trace.contains { $0.contains("incrementViews") })
+    }
+
     @Test func faultsActuallyHappen() async throws {
         let report = try await Simulation.run(seed: 7)
         #expect(report.failure == nil)

@@ -29,8 +29,16 @@ public actor Replica {
         path: String, wallClock: any WallClock = SystemClock(), replicaID: ReplicaID? = nil,
         manifest: SchemaManifest = TaskListSchema.v1
     ) async throws -> Replica {
-        try manifest.validate()
         let database = try await Database.openStore(path: path, replicaID: replicaID)
+        return try await open(database: database, wallClock: wallClock, manifest: manifest)
+    }
+
+    /// Opens an already-open store as `manifest`, e.g. to upgrade a simulated node in
+    /// place. Don't use the store's previous Replica afterwards.
+    public static func open(
+        database: Database, wallClock: any WallClock = SystemClock(), manifest: SchemaManifest
+    ) async throws -> Replica {
+        try manifest.validate()
         await database.setMergeRules(FieldMerger.rules(for: manifest))
         let previous = try await database.storedManifest()
         if let previous, previous.version < manifest.version {
