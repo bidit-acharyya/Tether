@@ -2,9 +2,13 @@
 
 A Swift package that stores app data locally on raw SQLite, lets iPhone and Mac edit offline, and merges every change deterministically when they reconnect, even when the devices run different versions of the app.
 
-## Definition of done
+## Why not just use Core Data + CloudKit?
 
-A Mac on v1 and an iPhone on v2, both offline, edit the same list, reconnect, and converge with nothing lost, including the v2-only fields the Mac can't display. Then the Mac upgrades and those fields appear. All of it in a 60-second video, and every claim in this README backed by a test or a benchmark.
+Core Data migrations upgrade one device at a time and assume everything moves to the new model together. CloudKit only lets you add to a schema once it's live, and older app versions just don't see the new fields. Neither one really handles two devices on different app versions editing the same data.
+
+In Tether, every change is a small op that says how to merge itself, so an older version can still store and sync fields it doesn't understand. Renames and defaults happen at read time, so stored data never gets rewritten.
+
+If your app only ever runs one version, or you want Apple to run the sync server, Core Data + CloudKit is still the easier choice.
 
 ## Requirements
 
@@ -28,6 +32,6 @@ A Mac on v1 and an iPhone on v2, both offline, edit the same list, reconnect, an
 | Kill -9 (`CrashTests`) | A writer killed mid-transaction never loses a committed op or leaves a partial batch | 200 iterations green |
 | Corruption (`CorruptionTests`) | Damaged files are refused or serve exactly the original data | 165/200 random overwrites detected, the rest harmless |
 
-**Mutation checks.** Making LWW keep the last-applied op made every convergence seed fail, and the minimizer cut the failure to 2 ops. Making the OR-Set remove-wins failed 3 scenario tests but *not* convergence: it is wrong but still deterministic. Convergence tests show replicas agree; scenario tests show they agree on the right answer. Details in [docs/bugs.md](docs/bugs.md).
+**Mutation checks.** Making LWW keep the last-applied op made every convergence seed fail, and the minimizer cut the failure to 2 ops. Making the OR-Set remove-wins failed 3 scenario tests but *not* convergence: it is wrong but still deterministic. Convergence tests show replicas agree; scenario tests show they agree on the right answer.
 
 Run more seeds with `TETHER_CONVERGENCE_SEEDS=10000 swift test -c release -Xswiftc -enable-testing --filter ConvergenceTests` (default 100). Replay a crash run with `TETHER_CRASH_SEED`.
