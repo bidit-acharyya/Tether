@@ -1,4 +1,5 @@
-// Debug overlay for the demo video: this replica, its version vector, and each peer.
+// Debug overlay for the demo video: this replica and app version, its version vector, what
+// it is preserving for newer versions, and each peer.
 
 import SwiftUI
 import TetherSync
@@ -9,11 +10,16 @@ struct DebugOverlay: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("replica \(info.replica) · \(itemCount) items")
+            Text("replica \(info.replica) · v\(info.version) · \(itemCount) items")
                 .bold()
             Text(vectorText)
+            if info.preserved > 0 {
+                Text(
+                    "\(info.preserved) fields from a newer version, preserved"
+                        + (info.pending > 0 ? " (\(info.pending) pending)" : ""))
+            }
             if info.peers.isEmpty {
-                Text("no peers yet")
+                Text("no peers connected")
                     .foregroundStyle(.secondary)
             }
             ForEach(info.peers, id: \.peer) { status in

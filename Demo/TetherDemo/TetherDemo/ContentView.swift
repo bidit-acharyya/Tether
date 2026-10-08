@@ -1,4 +1,5 @@
-// The task list: add, edit titles, check off, drag to reorder, delete, and tag.
+// The task list: add, edit titles, check off, drag to reorder, delete, and tag. From v2,
+// each item also has a priority.
 
 import SwiftUI
 import TetherCore
@@ -22,7 +23,7 @@ struct ContentView: View {
                 }
                 Section {
                     ForEach(model.items) { item in
-                        ItemRow(item: item, model: model)
+                        ItemRow(item: item, priority: model.priorities[item.id], model: model)
                     }
                     .onMove { model.move(from: $0, to: $1) }
                     .onDelete { model.delete(at: $0) }
@@ -56,8 +57,10 @@ struct ContentView: View {
 
 private struct ItemRow: View {
     let item: Item
+    let priority: Int64?
     let model: AppModel
     @State private var draft = ""
+    @FocusState private var editing: Bool
 
     var body: some View {
         HStack {
@@ -72,13 +75,33 @@ private struct ItemRow: View {
 
             TextField("Title", text: $draft)
                 .strikethrough(item.done)
+                .focused($editing)
                 .onSubmit { model.rename(item, to: draft) }
+                // Clicking or tapping away saves too, not just Return.
+                .onChange(of: editing) { _, isEditing in
+                    if !isEditing { model.rename(item, to: draft) }
+                }
 
             ForEach(item.tags.sorted(), id: \.self) { tag in
                 Text(tag)
                     .font(.caption)
                     .padding(.horizontal, 6)
                     .background(.tint.opacity(0.2), in: .capsule)
+            }
+
+            if let priority {
+                Picker(
+                    "Priority",
+                    selection: Binding(get: { priority }, set: { model.setPriority(item, to: $0) })
+                ) {
+                    Text("Low").tag(Int64(0))
+                    Text("Medium").tag(Int64(1))
+                    Text("High").tag(Int64(2))
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+                .tint(priority == 2 ? .red : .secondary)
             }
         }
         .onChange(of: item.title, initial: true) { draft = item.title }

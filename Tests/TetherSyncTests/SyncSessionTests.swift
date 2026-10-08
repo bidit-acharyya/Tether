@@ -260,6 +260,63 @@ private func sameState(_ replicas: [Replica]) async throws -> Bool {
         #expect(try await replicas[0].database.items(inList: list).map(\.title) == ["from c"])
     }
 
+    /// The Session 4.6 demo script: v1 Mac and v2 iPhone edit offline, reconnect, then the
+    /// Mac upgrades to v2 and sees the priorities.
+    @Test func twoVersionDemoScript() async throws {
+        let mac = try await Replica.open(
+            path: ":memory:", wallClock: FakeClock(millis: start),
+            replicaID: ReplicaID(bytes: Data(repeating: 1, count: 16)),
+            manifest: TaskListSchema.v1)
+        let phone = try await Replica.open(
+            path: ":memory:", wallClock: FakeClock(millis: start),
+            replicaID: ReplicaID(bytes: Data(repeating: 2, count: 16)),
+            manifest: TaskListSchema.v2)
+        let items = (0..<3).map { _ in DocID.random() }
+        try await mac.perform(.createList(list, title: "Groceries"))
+        for (index, item) in items.enumerated() {
+            try await mac.perform(
+                .addItem(item, toList: list, title: "item \(index)", position: "V\(index)"))
+        }
+        try await phone.apply(mac.database.ops(missingFrom: [:]))
+
+        // Offline: v1 edits titles, v2 sets priorities on the same items.
+        for item in items { try await mac.perform(.setTitle(item: item, "renamed on Mac")) }
+        for item in items.prefix(2) { try await phone.perform(.setPriority(item: item, 2)) }
+
+        let network = InMemoryNetwork()
+        let engines = [
+            SyncEngine(replica: mac, transport: await network.makeTransport(PeerID("mac"))),
+            SyncEngine(replica: phone, transport: await network.makeTransport(PeerID("phone"))),
+        ]
+        let runs = engines.map { engine in Task { await engine.run() } }
+        defer { for run in runs { run.cancel() } }
+        await network.connect(PeerID("mac"), PeerID("phone"))
+
+        #expect(
+            try await eventually {
+                try await phone.database.items(inList: list).allSatisfy {
+                    $0.title == "renamed on Mac"
+                }
+            })
+        #expect(
+            try await eventually {
+                try await mac.database.stateSnapshot().filter { !$0.known }.count == 2
+            })
+        #expect(
+            try await mac.database.items(inList: list).allSatisfy { $0.title == "renamed on Mac" })
+
+        // The Mac installs v2.
+        let upgraded = try await Replica.open(
+            database: mac.database, wallClock: FakeClock(millis: start), manifest: TaskListSchema.v2
+        )
+        var shown: [Int64?] = []
+        for item in items {
+            shown.append(try await upgraded.read(Int64.self, "priority", of: item, in: "item"))
+        }
+        #expect(shown == [2, 2, TaskListSchema.mediumPriority])
+        #expect(try await upgraded.database.stateSnapshot().allSatisfy(\.known))
+    }
+
     @Test func liveEditsArePushedImmediately() async throws {
         let a = try await replica(1)
         let b = try await replica(2)

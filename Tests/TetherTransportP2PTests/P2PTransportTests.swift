@@ -132,6 +132,30 @@ private func nextEvent(
         restarted.stop()
     }
 
+    @Test func aNetworkChangeRedialsImmediately() async throws {
+        let left = P2PTransport(replicaID: a, bonjour: false)
+        let right = P2PTransport(replicaID: b, bonjour: false)
+        let port = try await right.start()
+        try await left.start()
+        var leftEvents = left.events.makeAsyncIterator()
+
+        left.connect(to: loopback(port))
+        #expect(await nextEvent(&leftEvents) == .connected(right.peerID))
+        right.stop()
+        #expect(await nextEvent(&leftEvents) == .disconnected(right.peerID))
+        // Down long enough for the backoff to grow past the timeout below.
+        try await Task.sleep(for: .seconds(7.5))
+
+        let restarted = P2PTransport(replicaID: b, bonjour: false)
+        try await restarted.start(port: NWEndpoint.Port(rawValue: port)!)
+        let changed = ContinuousClock.now
+        left.networkChanged()
+        #expect(await nextEvent(&leftEvents) == .connected(right.peerID))
+        #expect(ContinuousClock.now - changed < .seconds(2))
+        left.stop()
+        restarted.stop()
+    }
+
     /// Regression for the real-device test: with Wi-Fi off, both devices still showed the
     /// other as "live" because the dead TCP connection was never noticed.
     @Test func deadConnectionsAreDetectedWithinSeconds() {

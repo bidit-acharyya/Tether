@@ -2,7 +2,8 @@
 // peers with Bonjour (_tether._tcp, replica id in the TXT record) and frames messages with
 // a 4-byte length prefix. Each connection opens with a preface frame: the sender's replica id.
 // The dialing side redials with backoff when a connection drops, and the listener and
-// browser restart if the system kills them (e.g. while an iOS app is in the background).
+// browser restart if the system kills them (e.g. while an iOS app is in the background) or
+// the network comes back, which can leave the Bonjour advertisement stale.
 
 import Foundation
 import Network
@@ -31,6 +32,9 @@ public final class P2PTransport: Transport, @unchecked Sendable {
     /// Where to redial each peer this side dials.
     private var endpoints: [PeerID: NWEndpoint] = [:]
     private var redialAttempts: [PeerID: Int] = [:]
+    private var pathMonitor: NWPathMonitor?
+    /// Interfaces of the last usable path; nil before the first update.
+    private var network: [String]?
 
     // Queue-confined, like the transport itself.
     private final class Flag: @unchecked Sendable {
@@ -94,6 +98,7 @@ public final class P2PTransport: Transport, @unchecked Sendable {
             self.listener = listener
             listenPort = port
             if bonjour { startBrowsing() }
+            startMonitoringNetwork()
         }
         return bound
     }
@@ -110,6 +115,7 @@ public final class P2PTransport: Transport, @unchecked Sendable {
             stopped = true
             listener?.cancel()
             browser?.cancel()
+            pathMonitor?.cancel()
             for link in open.values { link.connection.cancel() }
         }
     }
@@ -172,16 +178,58 @@ public final class P2PTransport: Transport, @unchecked Sendable {
         listener?.cancel()
         queue.asyncAfter(deadline: .now() + 1) { [weak self] in
             guard let self, !stopped else { return }
-            do {
-                let replacement = try makeListener(on: listenPort)
-                replacement.stateUpdateHandler = { [weak self] state in
-                    if case .failed(let error) = state { self?.listenerFailed(error) }
-                }
-                replacement.start(queue: queue)
-                listener = replacement
-            } catch {
-                listenerFailed(.posix(.EADDRINUSE))
+            replaceListener()
+        }
+    }
+
+    /// Accepted connections stay open; only the listening socket and advertisement are new.
+    private func replaceListener() {
+        listener?.cancel()
+        do {
+            let replacement = try makeListener(on: listenPort)
+            replacement.stateUpdateHandler = { [weak self] state in
+                if case .failed(let error) = state { self?.listenerFailed(error) }
             }
+            replacement.start(queue: queue)
+            listener = replacement
+        } catch {
+            listenerFailed(.posix(.EADDRINUSE))
+        }
+    }
+
+    // MARK: Network changes
+
+    private func startMonitoringNetwork() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self, path.status == .satisfied else { return }
+            let interfaces = path.availableInterfaces.map(\.name).sorted()
+            defer { network = interfaces }
+            if let network, network != interfaces { refreshNetwork() }
+        }
+        monitor.start(queue: queue)
+        pathMonitor = monitor
+    }
+
+    /// Test hook: behave as if the network just changed.
+    func networkChanged() {
+        queue.async { self.refreshNetwork() }
+    }
+
+    // Found on real devices: after Wi-Fi went fully off and back on, neither side reconnected
+    // until the app relaunched. Advertise and browse afresh, and redial now, not after backoff.
+    private func refreshNetwork() {
+        guard !stopped else { return }
+        logger.info("network changed; refreshing listener, browser and dials")
+        if bonjour {
+            replaceListener()
+            browser?.cancel()
+            startBrowsing()
+        }
+        for (peer, endpoint) in endpoints.sorted(by: { $0.key.rawValue < $1.key.rawValue })
+        where links[peer] == nil && !dialing.contains(peer) {
+            redialAttempts[peer] = 0
+            dial(endpoint, target: peer)
         }
     }
 
@@ -204,7 +252,9 @@ public final class P2PTransport: Transport, @unchecked Sendable {
             }
         }
         browser.stateUpdateHandler = { [weak self] state in
-            guard let self, case .failed(let error) = state else { return }
+            guard let self, case .failed(let error) = state, self.browser === browser else {
+                return
+            }
             logger.error("browser failed: \(error); restarting")
             browser.cancel()
             queue.asyncAfter(deadline: .now() + 1) { [weak self] in

@@ -6,5 +6,7 @@
 	<array>
 		<string>_tether._tcp</string>
 	</array>
+	<key>TetherSchemaVersion</key>
+	<string>$(TETHER_SCHEMA_VERSION)</string>
 </dict>
 </plist>
