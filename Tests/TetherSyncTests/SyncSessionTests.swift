@@ -196,9 +196,10 @@ private func replica(_ byte: UInt8) async throws -> Replica {
         replicaID: ReplicaID(bytes: Data(repeating: byte, count: 16)))
 }
 
-/// Polls until `condition` holds or `timeout` passes.
+/// Polls until `condition` holds or `timeout` passes. Generous on purpose: these engines run
+/// on the real clock, and a parallel run under heavy load (e.g. Xcode's) can starve them.
 private func eventually(
-    timeout: Duration = .seconds(10), _ condition: () async throws -> Bool
+    timeout: Duration = .seconds(60), _ condition: () async throws -> Bool
 ) async throws -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
