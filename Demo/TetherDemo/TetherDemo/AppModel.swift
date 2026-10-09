@@ -196,7 +196,10 @@ final class AppModel {
             (String(P2PTransport.hex($0.key).prefix(8)), $0.value)
         }
         debug.peers = await engine.statuses()
-        let state = (try? await replica.database.stateSnapshot()) ?? []
+        // Only what's on screen; deleted items keep their fields as tombstones.
+        let visible = Set(itemsByID.keys).union([Self.list])
+        let state = ((try? await replica.database.stateSnapshot()) ?? [])
+            .filter { visible.contains($0.docID) }
         debug.preserved = state.filter { !$0.known }.count
         debug.pending = state.filter(\.pending).count
     }
